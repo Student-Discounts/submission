@@ -1,0 +1,215 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:student-discounts:submission:events:v1",
+  "title": "Committed Submission output — submission.events.v1",
+  "description": "Key submissionId. At-least-once stable eventId; consumers transactionally deduplicate. aggregateSequence orders one submission. Catalog publication is triggered ONLY by committed SubmissionStatusChanged(toStatus=APPROVED); correlate preceding version event snapshot, transactionally deduplicate trigger and reuse allocated catalog offer IDs on replay, then emit OfferPublished with current tuple and rowVersion. Never publish from raw incoming SubmissionApproved.",
+  "type": "object",
+  "properties": {
+    "eventId": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "eventType": {
+      "type": "string"
+    },
+    "schemaVersion": {
+      "const": 1
+    },
+    "producer": {
+      "const": "submission"
+    },
+    "occurredAt": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "correlationId": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9._:-]{1,64}$"
+    },
+    "data": {
+      "type": "object"
+    },
+    "aggregateSequence": {
+      "type": "integer",
+      "minimum": 1
+    }
+  },
+  "additionalProperties": false,
+  "required": [
+    "eventId",
+    "eventType",
+    "schemaVersion",
+    "producer",
+    "occurredAt",
+    "correlationId",
+    "data",
+    "aggregateSequence"
+  ],
+  "oneOf": [
+    {
+      "type": "object",
+      "properties": {
+        "eventType": {
+          "enum": [
+            "SubmissionSubmitted",
+            "SubmissionVersionCreated"
+          ]
+        },
+        "data": {
+          "type": "object",
+          "properties": {
+            "submissionId": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "versionId": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "versionNo": {
+              "type": "integer",
+              "minimum": 1
+            },
+            "payload": {
+              "$ref": "payload-v1.schema.json"
+            },
+            "payloadSchemaVersion": {
+              "const": 1
+            },
+            "contentSha256": {
+              "type": "string",
+              "pattern": "^[0-9a-f]{64}$"
+            },
+            "baseOfferRowVersion": {
+              "type": [
+                "integer",
+                "null"
+              ]
+            },
+            "authorId": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "rowVersion": {
+              "type": "integer",
+              "minimum": 0
+            }
+          },
+          "additionalProperties": false,
+          "required": [
+            "submissionId",
+            "versionId",
+            "versionNo",
+            "payload",
+            "payloadSchemaVersion",
+            "contentSha256",
+            "baseOfferRowVersion",
+            "authorId",
+            "rowVersion"
+          ]
+        }
+      },
+      "additionalProperties": true,
+      "required": [
+        "eventType",
+        "data"
+      ]
+    },
+    {
+      "type": "object",
+      "properties": {
+        "eventType": {
+          "const": "SubmissionStatusChanged"
+        },
+        "data": {
+          "type": "object",
+          "properties": {
+            "submissionId": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "versionId": {
+              "type": [
+                "string",
+                "null"
+              ],
+              "format": "uuid"
+            },
+            "versionNo": {
+              "type": [
+                "integer",
+                "null"
+              ]
+            },
+            "fromStatus": {
+              "enum": [
+                null,
+                "DRAFT",
+                "SUBMITTED",
+                "VALIDATING",
+                "PENDING_REVIEW",
+                "IN_REVIEW",
+                "CHANGES_REQUESTED",
+                "APPROVED",
+                "REJECTED",
+                "CANCELLED",
+                "PUBLISHED",
+                "SUSPENDED",
+                "ARCHIVED"
+              ]
+            },
+            "toStatus": {
+              "enum": [
+                "DRAFT",
+                "SUBMITTED",
+                "VALIDATING",
+                "PENDING_REVIEW",
+                "IN_REVIEW",
+                "CHANGES_REQUESTED",
+                "APPROVED",
+                "REJECTED",
+                "CANCELLED",
+                "PUBLISHED",
+                "SUSPENDED",
+                "ARCHIVED"
+              ]
+            },
+            "rowVersion": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "expectedRowVersion": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "actorId": {
+              "type": [
+                "string",
+                "null"
+              ],
+              "format": "uuid"
+            },
+            "reason": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          },
+          "additionalProperties": false,
+          "required": [
+            "submissionId",
+            "fromStatus",
+            "toStatus",
+            "rowVersion"
+          ]
+        }
+      },
+      "additionalProperties": true,
+      "required": [
+        "eventType",
+        "data"
+      ]
+    }
+  ]
+}

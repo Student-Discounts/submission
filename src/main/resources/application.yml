@@ -1,0 +1,98 @@
+spring:
+  application:
+    name: submission-service
+  datasource:
+    url: ${SD_SUBMISSION_DB_URL}
+    username: ${SD_SUBMISSION_DB_USER}
+    password: ${SD_SUBMISSION_DB_PASSWORD}
+    hikari:
+      maximum-pool-size: 10
+  flyway:
+    enabled: true
+  jackson:
+    deserialization:
+      fail-on-unknown-properties: true
+  security:
+    oauth2:
+      resourceserver:
+        jwt:
+          issuer-uri: ${SD_SUBMISSION_AUTH_ISSUER}
+          jwk-set-uri: ${SD_SUBMISSION_AUTH_JWK_SET_URI}
+  kafka:
+    bootstrap-servers: ${SD_SUBMISSION_KAFKA_BOOTSTRAP_SERVERS}
+    consumer:
+      group-id: ${SD_SUBMISSION_KAFKA_GROUP_ID:submission-workflow-v1}
+      auto-offset-reset: earliest
+      enable-auto-commit: false
+      key-deserializer: org.apache.kafka.common.serialization.StringDeserializer
+      value-deserializer: org.apache.kafka.common.serialization.StringDeserializer
+    producer:
+      key-serializer: org.apache.kafka.common.serialization.StringSerializer
+      value-serializer: org.apache.kafka.common.serialization.StringSerializer
+      acks: all
+      properties:
+        enable.idempotence: true
+        delivery.timeout.ms: 10000
+        request.timeout.ms: 5000
+        max.block.ms: 10000
+    listener:
+      ack-mode: record
+server:
+  port: ${SERVER_PORT:8081}
+  tomcat:
+    threads:
+      max: 100
+    max-connections: 200
+    accept-count: 100
+submission:
+  security:
+    audience: student-discounts-api
+  dependencies:
+    catalog-base-url: ${SD_SUBMISSION_CATALOG_BASE_URL}
+    media-base-url: ${SD_SUBMISSION_MEDIA_BASE_URL}
+    geo-base-url: ${SD_SUBMISSION_GEO_BASE_URL}
+    organizations-base-url: ${SD_SUBMISSION_ORGANIZATIONS_BASE_URL:}
+  limits:
+    max-body-bytes: ${SD_SUBMISSION_MAX_BODY_BYTES:262144}
+    requests-per-minute: ${SD_SUBMISSION_REQUESTS_PER_MINUTE:120}
+  cors:
+    allowed-origins: ${SD_SUBMISSION_CORS_ALLOWED_ORIGINS:}
+  kafka:
+    workflow-topic: submission.workflow.v1
+    events-topic: submission.events.v1
+    group-id: ${SD_SUBMISSION_KAFKA_GROUP_ID:submission-workflow-v1}
+    local-topics-enabled: false
+  workers:
+    validation-enabled: ${SD_SUBMISSION_VALIDATION_ENABLED:true}
+    outbox-enabled: ${SD_SUBMISSION_OUTBOX_ENABLED:true}
+    validation-delay-ms: 500
+    validation-batch-size: 20
+    media-retry-ms: 5000
+    outbox-delay-ms: 500
+    outbox-batch-size: 50
+    outbox-send-timeout-ms: 10000
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,prometheus,metrics
+  endpoint:
+    health:
+      show-details: when_authorized
+      roles: SENIOR_MODERATOR
+      probes:
+        enabled: true
+      group:
+        liveness:
+          include: livenessState
+        readiness:
+          include: readinessState,db,kafka
+  metrics:
+    distribution:
+      percentiles-histogram:
+        http.server.requests: true
+      percentiles:
+        http.server.requests: 0.5,0.95,0.99
+logging:
+  pattern:
+    level: '%5p [correlationId=%X{correlationId:-}]'

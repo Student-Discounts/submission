@@ -1,0 +1,47 @@
+{
+  "name": "offer-2",
+  "priority": 5,
+  "request": {
+    "method": "GET",
+    "urlPath": "/catalog/v1/offers/019a0000-0000-7000-8000-000000000012"
+  },
+  "response": {
+    "status": 200,
+    "headers": {
+      "Content-Type": "application/json"
+    },
+    "jsonBody": {
+      "id": "019a0000-0000-7000-8000-000000000012",
+      "placeId": "019a0000-0000-7000-8000-000000000001",
+      "status": "ACTIVE",
+      "rowVersion": 7,
+      "payload": {
+        "place": {
+          "id": "019a0000-0000-7000-8000-000000000001",
+          "name": "Кофейня «Зерно»",
+          "city": "Санкт-Петербург",
+          "addressLine": "Кронверкский пр., 49",
+          "location": {
+            "lat": 59.9571,
+            "lon": 30.3083
+          },
+          "categoryCode": "cafe"
+        },
+        "offers": [
+          {
+            "id": "019a0000-0000-7000-8000-000000000012",
+            "conditions": "Студенческий обед за 600 рублей",
+            "discountType": "SPECIAL_PRICE",
+            "discountValue": 600,
+            "source": {
+              "type": "WEBSITE",
+              "url": "https://example.com/students"
+            },
+            "schedule": []
+          }
+        ],
+        "attachments": []
+      }
+    }
+  }
+}

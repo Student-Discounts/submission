@@ -1,0 +1,29 @@
+{
+  "name": "organization-denied",
+  "priority": 10,
+  "request": {
+    "method": "GET",
+    "urlPath": "/organizations/v1/authorizations",
+    "queryParameters": {
+      "userId": {
+        "matches": "[0-9a-fA-F-]{36}"
+      },
+      "placeId": {
+        "equalTo": "019a0000-0000-7000-8000-000000000001"
+      },
+      "action": {
+        "equalTo": "PROPOSE_CHANGE"
+      }
+    }
+  },
+  "response": {
+    "status": 200,
+    "headers": {
+      "Content-Type": "application/json"
+    },
+    "jsonBody": {
+      "allowed": false,
+      "verified": false
+    }
+  }
+}
