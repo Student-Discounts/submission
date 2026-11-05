@@ -1,0 +1,23 @@
+spring:
+  datasource:
+    url: ${SD_SUBMISSION_DB_URL:jdbc:postgresql://localhost:5433/submission}
+    username: ${SD_SUBMISSION_DB_USER:submission}
+    password: ${SD_SUBMISSION_DB_PASSWORD:submission}
+  security:
+    oauth2:
+      resourceserver:
+        jwt:
+          issuer-uri: ${SD_SUBMISSION_AUTH_ISSUER:http://localhost:8080}
+          jwk-set-uri: ${SD_SUBMISSION_AUTH_JWK_SET_URI:http://localhost:8080/.well-known/jwks.json}
+  kafka:
+    bootstrap-servers: ${SD_SUBMISSION_KAFKA_BOOTSTRAP_SERVERS:localhost:9092}
+submission:
+  dependencies:
+    catalog-base-url: ${SD_SUBMISSION_CATALOG_BASE_URL:http://localhost:8090}
+    media-base-url: ${SD_SUBMISSION_MEDIA_BASE_URL:http://localhost:8090}
+    geo-base-url: ${SD_SUBMISSION_GEO_BASE_URL:http://localhost:8090}
+    organizations-base-url: ${SD_SUBMISSION_ORGANIZATIONS_BASE_URL:http://localhost:8090}
+  cors:
+    allowed-origins: ${SD_SUBMISSION_CORS_ALLOWED_ORIGINS:http://localhost:5173}
+  kafka:
+    local-topics-enabled: true

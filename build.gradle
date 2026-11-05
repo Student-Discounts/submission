@@ -1,0 +1,121 @@
+plugins {
+	id 'java'
+	id 'org.springframework.boot' version '4.1.2'
+	id 'io.spring.dependency-management' version '1.1.7'
+}
+
+group = 'org.studentdiscounts'
+version = '0.1.0-SNAPSHOT'
+
+java {
+	toolchain {
+		languageVersion = JavaLanguageVersion.of(25)
+	}
+}
+
+repositories {
+	mavenCentral()
+}
+
+configurations {
+	javaFormatter
+}
+
+dependencies {
+	implementation 'org.springframework.boot:spring-boot-starter-actuator'
+	implementation 'org.springframework.boot:spring-boot-starter-flyway'
+	implementation 'org.springframework.boot:spring-boot-starter-jdbc'
+	implementation 'org.springframework.boot:spring-boot-starter-kafka'
+	implementation 'org.springframework.boot:spring-boot-starter-security'
+	implementation 'org.springframework.boot:spring-boot-starter-security-oauth2-resource-server'
+	implementation 'org.springframework.boot:spring-boot-starter-validation'
+	implementation 'org.springframework.boot:spring-boot-starter-webmvc'
+	implementation 'org.flywaydb:flyway-database-postgresql'
+	implementation 'com.fasterxml.uuid:java-uuid-generator:5.2.0'
+	javaFormatter 'com.google.googlejavaformat:google-java-format:2.0.0'
+	runtimeOnly 'io.micrometer:micrometer-registry-prometheus'
+	runtimeOnly 'org.postgresql:postgresql'
+	annotationProcessor 'org.springframework.boot:spring-boot-configuration-processor'
+	testImplementation 'org.springframework.boot:spring-boot-starter-actuator-test'
+	testImplementation 'org.springframework.boot:spring-boot-starter-flyway-test'
+	testImplementation 'org.springframework.boot:spring-boot-starter-jdbc-test'
+	testImplementation 'org.springframework.boot:spring-boot-starter-kafka-test'
+	testImplementation 'org.springframework.boot:spring-boot-starter-security-oauth2-resource-server-test'
+	testImplementation 'org.springframework.boot:spring-boot-starter-security-test'
+	testImplementation 'org.springframework.boot:spring-boot-starter-validation-test'
+	testImplementation 'org.springframework.boot:spring-boot-starter-webmvc-test'
+	testImplementation 'org.springframework.boot:spring-boot-testcontainers'
+	testImplementation 'org.testcontainers:testcontainers-junit-jupiter'
+	testImplementation 'org.testcontainers:testcontainers-kafka'
+	testImplementation 'org.testcontainers:testcontainers-postgresql'
+	testRuntimeOnly 'org.junit.platform:junit-platform-launcher'
+}
+
+sourceSets {
+	integrationTest {
+		compileClasspath += sourceSets.main.output
+		runtimeClasspath += sourceSets.main.output
+	}
+	smoke {
+		compileClasspath += sourceSets.main.output
+		runtimeClasspath += sourceSets.main.output
+	}
+}
+
+configurations {
+	integrationTestImplementation.extendsFrom testImplementation
+	integrationTestRuntimeOnly.extendsFrom testRuntimeOnly
+	smokeImplementation.extendsFrom testImplementation
+	smokeRuntimeOnly.extendsFrom testRuntimeOnly
+}
+
+tasks.register('integrationTest', Test) {
+	description = 'Runs PostgreSQL, Kafka, and HTTP integration tests (requires Docker).'
+	group = 'verification'
+	testClassesDirs = sourceSets.integrationTest.output.classesDirs
+	classpath = sourceSets.integrationTest.runtimeClasspath
+	useJUnitPlatform()
+	shouldRunAfter tasks.named('test')
+}
+
+tasks.named('check') {
+	dependsOn 'integrationTest', 'javaFormatCheck'
+}
+
+tasks.named('bootJar') {
+	archiveFileName = 'submission-service.jar'
+}
+
+tasks.register('smoke', JavaExec) {
+	description = 'Runs the isolated executable-jar smoke against local PostgreSQL/Kafka/business stubs.'
+	group = 'verification'
+	dependsOn tasks.named('bootJar'), tasks.named('smokeClasses')
+	classpath = sourceSets.smoke.runtimeClasspath
+	mainClass = 'org.studentdiscounts.submission.smoke.SubmissionSmoke'
+	javaLauncher = javaToolchains.launcherFor {
+		languageVersion = JavaLanguageVersion.of(25)
+	}
+}
+
+tasks.named('test') {
+	useJUnitPlatform()
+}
+
+['javaFormat', 'javaFormatCheck'].each { taskName ->
+	tasks.register(taskName, JavaExec) {
+		description = taskName == 'javaFormat' ? 'Formats Java sources reproducibly.' : 'Checks Java source formatting.'
+		group = 'formatting'
+		classpath = configurations.javaFormatter
+		mainClass = 'com.google.googlejavaformat.java.Main'
+		javaLauncher = javaToolchains.launcherFor {
+			languageVersion = JavaLanguageVersion.of(25)
+		}
+		jvmArgs = ['api', 'file', 'parser', 'tree', 'util', 'code'].collect {
+			"--add-exports=jdk.compiler/com.sun.tools.javac.${it}=ALL-UNNAMED"
+		}
+		doFirst {
+			args = taskName == 'javaFormat' ? ['--replace'] : ['--dry-run', '--set-exit-if-changed']
+			args += sourceSets.collectMany { it.allJava.files }.collect { it.absolutePath }.sort()
+		}
+	}
+}

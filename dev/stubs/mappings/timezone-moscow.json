@@ -1,0 +1,25 @@
+{
+  "name": "timezone-moscow",
+  "priority": 5,
+  "request": {
+    "method": "GET",
+    "urlPath": "/geo/v1/timezone",
+    "queryParameters": {
+      "lat": {
+        "matches": "59\\.95710*"
+      },
+      "lon": {
+        "matches": "30\\.30830*"
+      }
+    }
+  },
+  "response": {
+    "status": 200,
+    "headers": {
+      "Content-Type": "application/json"
+    },
+    "jsonBody": {
+      "timezone": "Europe/Moscow"
+    }
+  }
+}

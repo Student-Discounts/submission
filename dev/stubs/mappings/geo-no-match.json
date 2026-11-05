@@ -1,0 +1,25 @@
+{
+  "name": "geo-no-match",
+  "priority": 5,
+  "request": {
+    "method": "GET",
+    "urlPath": "/geo/v1/suggestions",
+    "queryParameters": {
+      "city": {
+        "equalTo": "No Match"
+      },
+      "addressLine": {
+        "equalTo": "Unknown"
+      }
+    }
+  },
+  "response": {
+    "status": 200,
+    "headers": {
+      "Content-Type": "application/json"
+    },
+    "jsonBody": {
+      "candidates": []
+    }
+  }
+}
