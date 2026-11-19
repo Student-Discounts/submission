@@ -1,0 +1,25 @@
+{
+  "name": "timezone-utc",
+  "priority": 5,
+  "request": {
+    "method": "GET",
+    "urlPath": "/geo/v1/timezone",
+    "queryParameters": {
+      "lat": {
+        "matches": "0(?:\\.0+)?"
+      },
+      "lon": {
+        "matches": "0(?:\\.0+)?"
+      }
+    }
+  },
+  "response": {
+    "status": 200,
+    "headers": {
+      "Content-Type": "application/json"
+    },
+    "jsonBody": {
+      "timezone": "UTC"
+    }
+  }
+}

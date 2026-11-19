@@ -1,0 +1,7 @@
+*
+!build/
+build/*
+!build/libs/
+build/libs/*
+!build/libs/submission-service.jar
+!Dockerfile

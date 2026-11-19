@@ -1,0 +1,1419 @@
+openapi: 3.1.0
+info:
+  title: Submission Service API
+  version: 0.1.0
+  description: Stateless RS256 Bearer JWT issued by external auth. Exact audience student-discounts-api; UUID sub/sid and
+    string-array roles. STUDENT, ORG_REPRESENTATIVE, MODERATOR, SENIOR_MODERATOR only. Any representative role on target-bound
+    writes always requires verified organization authorization even together with STUDENT. No per-request auth introspection;
+    issued tokens may remain valid for auth’s five-minute TTL. Errors are RFC9457. Request cap262144 bytes; default120 requests/user/UTC-minute;
+    correlation header [A-Za-z0-9._:-]{1,64} accepted or generated and returned. Client cannot set service metadata. No approve/reject
+    REST endpoints.
+servers:
+- url: http://localhost:8081
+security:
+- bearerAuth: []
+paths:
+  /api/v1/submissions:
+    post:
+      summary: Create an incomplete draft
+      responses:
+        '201':
+          description: Created DRAFT with no immutable version
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Submission'
+          headers:
+            ETag:
+              description: Quoted integer rowVersion; required unchanged in next If-Match. Replay returns original ETag.
+              schema:
+                type: string
+                pattern: ^"[0-9]+"$
+            Location:
+              schema:
+                type: string
+                format: uri-reference
+        '400':
+          $ref: '#/components/responses/Error400'
+        '401':
+          $ref: '#/components/responses/Error401'
+        '403':
+          $ref: '#/components/responses/Error403'
+        '404':
+          $ref: '#/components/responses/Error404'
+        '409':
+          $ref: '#/components/responses/Error409'
+        '412':
+          $ref: '#/components/responses/Error412'
+        '413':
+          $ref: '#/components/responses/Error413'
+        '422':
+          $ref: '#/components/responses/Error422'
+        '428':
+          $ref: '#/components/responses/Error428'
+        '429':
+          $ref: '#/components/responses/Error429'
+        '503':
+          $ref: '#/components/responses/Error503'
+      parameters:
+      - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateSubmission'
+    get:
+      summary: List only own submissions
+      responses:
+        '200':
+          description: Descending metadata cursor page
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  items:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/SubmissionMetadata'
+                  nextCursor: &id001
+                    type:
+                    - string
+                    - 'null'
+                    format: uuid
+                additionalProperties: false
+                required:
+                - items
+                - nextCursor
+        '400':
+          $ref: '#/components/responses/Error400'
+        '401':
+          $ref: '#/components/responses/Error401'
+        '403':
+          $ref: '#/components/responses/Error403'
+        '404':
+          $ref: '#/components/responses/Error404'
+        '409':
+          $ref: '#/components/responses/Error409'
+        '412':
+          $ref: '#/components/responses/Error412'
+        '413':
+          $ref: '#/components/responses/Error413'
+        '422':
+          $ref: '#/components/responses/Error422'
+        '428':
+          $ref: '#/components/responses/Error428'
+        '429':
+          $ref: '#/components/responses/Error429'
+        '503':
+          $ref: '#/components/responses/Error503'
+      parameters:
+      - $ref: '#/components/parameters/Limit'
+      - $ref: '#/components/parameters/BeforeUuid'
+  /api/v1/submissions/{id}:
+    parameters:
+    - $ref: '#/components/parameters/Id'
+    get:
+      summary: Read own submission or authorized review data
+      responses:
+        '200':
+          description: Current metadata and immutable version
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Submission'
+          headers:
+            ETag:
+              description: Quoted integer rowVersion; required unchanged in next If-Match. Replay returns original ETag.
+              schema:
+                type: string
+                pattern: ^"[0-9]+"$
+        '400':
+          $ref: '#/components/responses/Error400'
+        '401':
+          $ref: '#/components/responses/Error401'
+        '403':
+          $ref: '#/components/responses/Error403'
+        '404':
+          $ref: '#/components/responses/Error404'
+        '409':
+          $ref: '#/components/responses/Error409'
+        '412':
+          $ref: '#/components/responses/Error412'
+        '413':
+          $ref: '#/components/responses/Error413'
+        '422':
+          $ref: '#/components/responses/Error422'
+        '428':
+          $ref: '#/components/responses/Error428'
+        '429':
+          $ref: '#/components/responses/Error429'
+        '503':
+          $ref: '#/components/responses/Error503'
+    patch:
+      summary: Merge-patch editable draft payload only
+      responses:
+        '200':
+          description: Patched draft
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Submission'
+          headers:
+            ETag:
+              description: Quoted integer rowVersion; required unchanged in next If-Match. Replay returns original ETag.
+              schema:
+                type: string
+                pattern: ^"[0-9]+"$
+        '400':
+          $ref: '#/components/responses/Error400'
+        '401':
+          $ref: '#/components/responses/Error401'
+        '403':
+          $ref: '#/components/responses/Error403'
+        '404':
+          $ref: '#/components/responses/Error404'
+        '409':
+          $ref: '#/components/responses/Error409'
+        '412':
+          $ref: '#/components/responses/Error412'
+        '413':
+          $ref: '#/components/responses/Error413'
+        '422':
+          $ref: '#/components/responses/Error422'
+        '428':
+          $ref: '#/components/responses/Error428'
+        '429':
+          $ref: '#/components/responses/Error429'
+        '503':
+          $ref: '#/components/responses/Error503'
+      parameters:
+      - $ref: '#/components/parameters/IfMatch'
+      description: DRAFT/CHANGES_REQUESTED only. Body is payload patch, not a payload wrapper. Recursive object merge; arrays
+        replace; null removes; no silent CHANGE rebase.
+      requestBody:
+        required: true
+        content:
+          application/merge-patch+json:
+            schema:
+              type: object
+              description: Partial payload; null property values remove fields. Full payload business rules apply at submit.
+  /api/v1/submissions/{id}/submit:
+    parameters:
+    - $ref: '#/components/parameters/Id'
+    post:
+      summary: Freeze snapshot and begin review cycle
+      responses:
+        '202':
+          description: New review cycle queued
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SubmitResult'
+          headers:
+            ETag:
+              description: Quoted integer rowVersion; required unchanged in next If-Match. Replay returns original ETag.
+              schema:
+                type: string
+                pattern: ^"[0-9]+"$
+        '200':
+          description: Existing frozen version; no new version/event unless unchanged CHANGES_REQUESTED resubmission
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SubmitResult'
+          headers:
+            ETag:
+              description: Quoted integer rowVersion; required unchanged in next If-Match. Replay returns original ETag.
+              schema:
+                type: string
+                pattern: ^"[0-9]+"$
+        '400':
+          $ref: '#/components/responses/Error400'
+        '401':
+          $ref: '#/components/responses/Error401'
+        '403':
+          $ref: '#/components/responses/Error403'
+        '404':
+          $ref: '#/components/responses/Error404'
+        '409':
+          $ref: '#/components/responses/Error409'
+        '412':
+          $ref: '#/components/responses/Error412'
+        '413':
+          $ref: '#/components/responses/Error413'
+        '422':
+          $ref: '#/components/responses/Error422'
+        '428':
+          $ref: '#/components/responses/Error428'
+        '429':
+          $ref: '#/components/responses/Error429'
+        '503':
+          $ref: '#/components/responses/Error503'
+      parameters:
+      - $ref: '#/components/parameters/IfMatch'
+      - $ref: '#/components/parameters/IdempotencyKey'
+      description: No request body. Approval/publication are not author HTTP operations.
+  /api/v1/submissions/{id}/cancel:
+    parameters:
+    - $ref: '#/components/parameters/Id'
+    post:
+      summary: Cancel only SUBMITTED
+      responses:
+        '200':
+          description: CANCELLED, immutable version preserved
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Submission'
+          headers:
+            ETag:
+              description: Quoted integer rowVersion; required unchanged in next If-Match. Replay returns original ETag.
+              schema:
+                type: string
+                pattern: ^"[0-9]+"$
+        '400':
+          $ref: '#/components/responses/Error400'
+        '401':
+          $ref: '#/components/responses/Error401'
+        '403':
+          $ref: '#/components/responses/Error403'
+        '404':
+          $ref: '#/components/responses/Error404'
+        '409':
+          $ref: '#/components/responses/Error409'
+        '412':
+          $ref: '#/components/responses/Error412'
+        '413':
+          $ref: '#/components/responses/Error413'
+        '422':
+          $ref: '#/components/responses/Error422'
+        '428':
+          $ref: '#/components/responses/Error428'
+        '429':
+          $ref: '#/components/responses/Error429'
+        '503':
+          $ref: '#/components/responses/Error503'
+      parameters:
+      - $ref: '#/components/parameters/IfMatch'
+      description: No request body. Approval/publication are not author HTTP operations.
+  /api/v1/submissions/{id}/versions:
+    parameters:
+    - $ref: '#/components/parameters/Id'
+    get:
+      summary: List immutable snapshots
+      responses:
+        '200':
+          description: Descending version page
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  items:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Version'
+                  nextCursor:
+                    type:
+                    - integer
+                    - 'null'
+                additionalProperties: false
+                required:
+                - items
+                - nextCursor
+        '400':
+          $ref: '#/components/responses/Error400'
+        '401':
+          $ref: '#/components/responses/Error401'
+        '403':
+          $ref: '#/components/responses/Error403'
+        '404':
+          $ref: '#/components/responses/Error404'
+        '409':
+          $ref: '#/components/responses/Error409'
+        '412':
+          $ref: '#/components/responses/Error412'
+        '413':
+          $ref: '#/components/responses/Error413'
+        '422':
+          $ref: '#/components/responses/Error422'
+        '428':
+          $ref: '#/components/responses/Error428'
+        '429':
+          $ref: '#/components/responses/Error429'
+        '503':
+          $ref: '#/components/responses/Error503'
+      parameters:
+      - $ref: '#/components/parameters/Limit'
+      - $ref: '#/components/parameters/BeforeVersion'
+    post:
+      summary: Create moderator-corrected immutable version
+      responses:
+        '201':
+          description: Corrected snapshot; remains IN_REVIEW
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Version'
+          headers:
+            ETag:
+              description: Quoted integer rowVersion; required unchanged in next If-Match. Replay returns original ETag.
+              schema:
+                type: string
+                pattern: ^"[0-9]+"$
+        '200':
+          description: Identical version/base reused
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Version'
+          headers:
+            ETag:
+              description: Quoted integer rowVersion; required unchanged in next If-Match. Replay returns original ETag.
+              schema:
+                type: string
+                pattern: ^"[0-9]+"$
+        '400':
+          $ref: '#/components/responses/Error400'
+        '401':
+          $ref: '#/components/responses/Error401'
+        '403':
+          $ref: '#/components/responses/Error403'
+        '404':
+          $ref: '#/components/responses/Error404'
+        '409':
+          $ref: '#/components/responses/Error409'
+        '412':
+          $ref: '#/components/responses/Error412'
+        '413':
+          $ref: '#/components/responses/Error413'
+        '422':
+          $ref: '#/components/responses/Error422'
+        '428':
+          $ref: '#/components/responses/Error428'
+        '429':
+          $ref: '#/components/responses/Error429'
+        '503':
+          $ref: '#/components/responses/Error503'
+      parameters:
+      - $ref: '#/components/parameters/IfMatch'
+      - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/Correction'
+  /api/v1/submissions/{id}/versions/{versionNo}:
+    parameters:
+    - $ref: '#/components/parameters/Id'
+    - name: versionNo
+      in: path
+      required: true
+      schema:
+        type: integer
+        minimum: 1
+    get:
+      summary: Read immutable version
+      responses:
+        '200':
+          description: Immutable snapshot
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Version'
+        '400':
+          $ref: '#/components/responses/Error400'
+        '401':
+          $ref: '#/components/responses/Error401'
+        '403':
+          $ref: '#/components/responses/Error403'
+        '404':
+          $ref: '#/components/responses/Error404'
+        '409':
+          $ref: '#/components/responses/Error409'
+        '412':
+          $ref: '#/components/responses/Error412'
+        '413':
+          $ref: '#/components/responses/Error413'
+        '422':
+          $ref: '#/components/responses/Error422'
+        '428':
+          $ref: '#/components/responses/Error428'
+        '429':
+          $ref: '#/components/responses/Error429'
+        '503':
+          $ref: '#/components/responses/Error503'
+  /api/v1/submissions/{id}/history:
+    parameters:
+    - $ref: '#/components/parameters/Id'
+    get:
+      summary: Read append-only status history
+      responses:
+        '200':
+          description: Descending UUID cursor page
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  items:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/HistoryEntry'
+                  nextCursor: *id001
+                additionalProperties: false
+                required:
+                - items
+                - nextCursor
+        '400':
+          $ref: '#/components/responses/Error400'
+        '401':
+          $ref: '#/components/responses/Error401'
+        '403':
+          $ref: '#/components/responses/Error403'
+        '404':
+          $ref: '#/components/responses/Error404'
+        '409':
+          $ref: '#/components/responses/Error409'
+        '412':
+          $ref: '#/components/responses/Error412'
+        '413':
+          $ref: '#/components/responses/Error413'
+        '422':
+          $ref: '#/components/responses/Error422'
+        '428':
+          $ref: '#/components/responses/Error428'
+        '429':
+          $ref: '#/components/responses/Error429'
+        '503':
+          $ref: '#/components/responses/Error503'
+      parameters:
+      - $ref: '#/components/parameters/Limit'
+      - $ref: '#/components/parameters/BeforeUuid'
+  /api/v1/submissions/{id}/comparison:
+    parameters:
+    - $ref: '#/components/parameters/Id'
+    get:
+      summary: Compare current snapshot with current public Catalog
+      responses:
+        '200':
+          description: Review revision and sorted changed fields
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Comparison'
+        '400':
+          $ref: '#/components/responses/Error400'
+        '401':
+          $ref: '#/components/responses/Error401'
+        '403':
+          $ref: '#/components/responses/Error403'
+        '404':
+          $ref: '#/components/responses/Error404'
+        '409':
+          $ref: '#/components/responses/Error409'
+        '412':
+          $ref: '#/components/responses/Error412'
+        '413':
+          $ref: '#/components/responses/Error413'
+        '422':
+          $ref: '#/components/responses/Error422'
+        '428':
+          $ref: '#/components/responses/Error428'
+        '429':
+          $ref: '#/components/responses/Error429'
+        '503':
+          $ref: '#/components/responses/Error503'
+  /api/v1/location-suggestions:
+    get:
+      summary: Read Geo suggestions without modifying drafts
+      responses:
+        '200':
+          description: No match is an empty candidates array
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  candidates:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        location:
+                          type: object
+                          properties:
+                            lat:
+                              type: number
+                              minimum: -90
+                              maximum: 90
+                            lon:
+                              type: number
+                              minimum: -180
+                              maximum: 180
+                          additionalProperties: false
+                          required:
+                          - lat
+                          - lon
+                        timezone:
+                          type: string
+                      additionalProperties: false
+                      required:
+                      - location
+                      - timezone
+                additionalProperties: false
+                required:
+                - candidates
+        '400':
+          $ref: '#/components/responses/Error400'
+        '401':
+          $ref: '#/components/responses/Error401'
+        '403':
+          $ref: '#/components/responses/Error403'
+        '404':
+          $ref: '#/components/responses/Error404'
+        '409':
+          $ref: '#/components/responses/Error409'
+        '412':
+          $ref: '#/components/responses/Error412'
+        '413':
+          $ref: '#/components/responses/Error413'
+        '422':
+          $ref: '#/components/responses/Error422'
+        '428':
+          $ref: '#/components/responses/Error428'
+        '429':
+          $ref: '#/components/responses/Error429'
+        '503':
+          $ref: '#/components/responses/Error503'
+      parameters:
+      - name: city
+        in: query
+        required: true
+        schema:
+          type: string
+      - name: addressLine
+        in: query
+        required: true
+        schema:
+          type: string
+  /openapi.yaml:
+    get:
+      summary: Public API description
+      security: []
+      responses:
+        '200':
+          description: OpenAPI 3.1 YAML document
+  /actuator/health:
+    get:
+      summary: Public redacted health
+      security: []
+      responses:
+        '200':
+          description: UP
+        '503':
+          $ref: '#/components/responses/Error503'
+  /actuator/health/liveness:
+    get:
+      summary: Public redacted health
+      security: []
+      responses:
+        '200':
+          description: UP
+        '503':
+          $ref: '#/components/responses/Error503'
+  /actuator/health/readiness:
+    get:
+      summary: Public redacted health
+      security: []
+      responses:
+        '200':
+          description: UP
+        '503':
+          $ref: '#/components/responses/Error503'
+  /actuator/prometheus:
+    get:
+      summary: Prometheus metrics; SENIOR_MODERATOR only
+      responses:
+        '200':
+          description: Prometheus text
+        '401':
+          $ref: '#/components/responses/Error401'
+        '403':
+          $ref: '#/components/responses/Error403'
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+  parameters:
+    Id:
+      name: id
+      in: path
+      required: true
+      schema: &id002
+        type: string
+        format: uuid
+    IfMatch:
+      name: If-Match
+      in: header
+      required: true
+      schema:
+        type: string
+        pattern: ^"[0-9]+"$
+    IdempotencyKey:
+      name: Idempotency-Key
+      in: header
+      required: true
+      schema:
+        type: string
+        minLength: 1
+        maxLength: 128
+        pattern: ^[ -~]+$
+      description: Actor + exact method/path scope. Normalized body and original If-Match fingerprint. Durable successful
+        replay before state/dependency checks; reuse with changed fingerprint =>409. Failed operations not cached.
+    Limit:
+      name: limit
+      in: query
+      schema:
+        type: integer
+        minimum: 1
+        maximum: 100
+        default: 20
+    BeforeUuid:
+      name: before
+      in: query
+      schema: *id002
+      description: Exclusive UUID cursor, descending order.
+    BeforeVersion:
+      name: before
+      in: query
+      schema:
+        type: integer
+        minimum: 1
+      description: Exclusive versionNo, descending order.
+  schemas:
+    Payload:
+      type: object
+      properties:
+        place:
+          type: object
+          properties:
+            id:
+              type:
+              - string
+              - 'null'
+              format: uuid
+            name:
+              type: string
+              maxLength: 200
+            city:
+              type: string
+              maxLength: 100
+            addressLine:
+              type: string
+              maxLength: 300
+            categoryCode:
+              type: string
+              maxLength: 50
+            location:
+              type: object
+              properties:
+                lat:
+                  type: number
+                  minimum: -90
+                  maximum: 90
+                lon:
+                  type: number
+                  minimum: -180
+                  maximum: 180
+              additionalProperties: false
+              required:
+              - lat
+              - lon
+          additionalProperties: false
+          required:
+          - name
+          - city
+          - addressLine
+          - categoryCode
+        offers:
+          type: array
+          minItems: 1
+          maxItems: 5
+          items:
+            type: object
+            properties:
+              id:
+                type:
+                - string
+                - 'null'
+                format: uuid
+              conditions:
+                type: string
+                minLength: 1
+                maxLength: 2000
+              discountType:
+                enum:
+                - PERCENT
+                - FIXED_AMOUNT
+                - SPECIAL_PRICE
+                - FREE_ITEM
+                - OTHER
+                default: OTHER
+              discountValue:
+                type: number
+                exclusiveMinimum: 0
+                maximum: 99999999.99
+                multipleOf: 0.01
+              source:
+                type: object
+                properties:
+                  type:
+                    enum:
+                    - WEBSITE
+                    - SOCIAL_MEDIA
+                    - ORGANIZATION
+                    - PERSONAL_VISIT
+                    - OTHER
+                  url:
+                    type: string
+                    format: uri
+                    maxLength: 2048
+                    pattern: ^https?://
+                  note:
+                    type: string
+                    maxLength: 1000
+                additionalProperties: false
+              validFrom:
+                type: string
+                format: date
+              validUntil:
+                type: string
+                format: date
+              schedule:
+                type: array
+                maxItems: 28
+                items:
+                  type: object
+                  properties:
+                    dayOfWeek:
+                      type: integer
+                      minimum: 1
+                      maximum: 7
+                    timeFrom:
+                      type: string
+                      pattern: ^(?:[01][0-9]|2[0-3]):[0-5][0-9]$
+                    timeUntil:
+                      type: string
+                      pattern: ^(?:(?:[01][0-9]|2[0-3]):[0-5][0-9]|24:00)$
+                  additionalProperties: false
+                  required:
+                  - dayOfWeek
+                  - timeFrom
+                  - timeUntil
+            additionalProperties: false
+            required:
+            - conditions
+            - discountType
+        attachments:
+          type: array
+          maxItems: 10
+          items:
+            type: object
+            properties:
+              mediaAssetId:
+                type: string
+                format: uuid
+              purpose:
+                enum:
+                - PHOTO
+                - PROOF
+              offerIndex:
+                type: integer
+                minimum: 0
+                maximum: 4
+            additionalProperties: false
+            required:
+            - mediaAssetId
+            - purpose
+      additionalProperties: false
+      required:
+      - place
+      - offers
+      description: Normalized immutable full snapshot. CHANGE has exactly one offer. Source type plus URL/note OR matching
+        PROOF is required per offer. PERCENT is 1–100; FREE_ITEM/OTHER omit discountValue. Coordinates optional but paired;
+        resolved timezone is version metadata, never a payload field. Inclusive validUntil is checked in resolved zone (UTC
+        without coordinates). Adjacent intervals allowed; overlaps/midnight crossing forbidden. Client cannot supply place/offer
+        IDs; service derives target IDs.
+    DraftPayload:
+      type: object
+      properties:
+        place:
+          type:
+          - object
+          - 'null'
+          properties:
+            id:
+              type:
+              - string
+              - 'null'
+              format: uuid
+            name:
+              type:
+              - string
+              - 'null'
+              maxLength: 200
+            city:
+              type:
+              - string
+              - 'null'
+              maxLength: 100
+            addressLine:
+              type:
+              - string
+              - 'null'
+              maxLength: 300
+            categoryCode:
+              type:
+              - string
+              - 'null'
+              maxLength: 50
+            location:
+              type:
+              - object
+              - 'null'
+              properties:
+                lat:
+                  type: number
+                  minimum: -90
+                  maximum: 90
+                lon:
+                  type: number
+                  minimum: -180
+                  maximum: 180
+              additionalProperties: false
+              required:
+              - lat
+              - lon
+          additionalProperties: false
+        offers:
+          type:
+          - array
+          - 'null'
+          minItems: 0
+          maxItems: 5
+          items:
+            type: object
+            properties:
+              id:
+                type:
+                - string
+                - 'null'
+                format: uuid
+              conditions:
+                type:
+                - string
+                - 'null'
+                minLength: 1
+                maxLength: 2000
+              discountType:
+                enum:
+                - PERCENT
+                - FIXED_AMOUNT
+                - SPECIAL_PRICE
+                - FREE_ITEM
+                - OTHER
+                - null
+                default: OTHER
+              discountValue:
+                type:
+                - number
+                - 'null'
+                exclusiveMinimum: 0
+                maximum: 99999999.99
+                multipleOf: 0.01
+              source:
+                type:
+                - object
+                - 'null'
+                properties:
+                  type:
+                    enum:
+                    - WEBSITE
+                    - SOCIAL_MEDIA
+                    - ORGANIZATION
+                    - PERSONAL_VISIT
+                    - OTHER
+                    - null
+                  url:
+                    type:
+                    - string
+                    - 'null'
+                    format: uri
+                    maxLength: 2048
+                    pattern: ^https?://
+                  note:
+                    type:
+                    - string
+                    - 'null'
+                    maxLength: 1000
+                additionalProperties: false
+              validFrom:
+                type:
+                - string
+                - 'null'
+                format: date
+              validUntil:
+                type:
+                - string
+                - 'null'
+                format: date
+              schedule:
+                type:
+                - array
+                - 'null'
+                maxItems: 28
+                items:
+                  type: object
+                  properties:
+                    dayOfWeek:
+                      type: integer
+                      minimum: 1
+                      maximum: 7
+                    timeFrom:
+                      type: string
+                      pattern: ^(?:[01][0-9]|2[0-3]):[0-5][0-9]$
+                    timeUntil:
+                      type: string
+                      pattern: ^(?:(?:[01][0-9]|2[0-3]):[0-5][0-9]|24:00)$
+                  additionalProperties: false
+                  required:
+                  - dayOfWeek
+                  - timeFrom
+                  - timeUntil
+            additionalProperties: false
+        attachments:
+          type:
+          - array
+          - 'null'
+          maxItems: 10
+          items:
+            type: object
+            properties:
+              mediaAssetId:
+                type: string
+                format: uuid
+              purpose:
+                enum:
+                - PHOTO
+                - PROOF
+              offerIndex:
+                type:
+                - integer
+                - 'null'
+                minimum: 0
+                maximum: 4
+            additionalProperties: false
+            required:
+            - mediaAssetId
+            - purpose
+      additionalProperties: false
+      description: Partial draft snapshot; absent/blank/null required business fields accepted until submit. Supplied structural
+        members remain validated. Objects/arrays with wrong types, unknown members and client service metadata rejected. Empty
+        offers permitted in drafts. PATCH null removes a field; arrays replace.
+    Version:
+      type: object
+      properties:
+        id: *id002
+        submissionId: *id002
+        versionNo:
+          type: integer
+          minimum: 1
+        previousVersionId: *id001
+        payload:
+          $ref: '#/components/schemas/Payload'
+        payloadSchemaVersion:
+          type: integer
+          const: 1
+        contentSha256:
+          type: string
+          pattern: ^[0-9a-f]{64}$
+        baseOfferRowVersion:
+          type:
+          - integer
+          - 'null'
+        createdBy: *id002
+        createdAt:
+          type: string
+          format: date-time
+        resolvedTimezone:
+          type:
+          - string
+          - 'null'
+      additionalProperties: false
+      required:
+      - id
+      - submissionId
+      - versionNo
+      - payload
+      - payloadSchemaVersion
+      - contentSha256
+      - createdBy
+      - createdAt
+    Submission:
+      type: object
+      properties:
+        id: *id002
+        type:
+          enum:
+          - NEW_PLACE
+          - NEW_OFFER
+          - CHANGE
+        status:
+          enum: &id003
+          - DRAFT
+          - SUBMITTED
+          - VALIDATING
+          - PENDING_REVIEW
+          - IN_REVIEW
+          - CHANGES_REQUESTED
+          - APPROVED
+          - REJECTED
+          - CANCELLED
+          - PUBLISHED
+          - SUSPENDED
+          - ARCHIVED
+        authorId: *id002
+        targetPlaceId: *id001
+        targetOfferId: *id001
+        draftPayload:
+          oneOf:
+          - $ref: '#/components/schemas/DraftPayload'
+          - type: 'null'
+        currentVersion:
+          oneOf:
+          - $ref: '#/components/schemas/Version'
+          - type: 'null'
+        rowVersion:
+          type: integer
+          minimum: 0
+        draftBaseOfferRowVersion:
+          type:
+          - integer
+          - 'null'
+        publishedOfferIds:
+          type: [array, 'null']
+          items: *id002
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+        latestStatusReason:
+          type:
+          - string
+          - 'null'
+      additionalProperties: false
+      required:
+      - id
+      - type
+      - status
+      - authorId
+      - rowVersion
+      - currentVersion
+    CreateSubmission:
+      type: object
+      properties:
+        type:
+          enum:
+          - NEW_PLACE
+          - NEW_OFFER
+          - CHANGE
+        targetPlaceId: *id002
+        targetOfferId: *id002
+        payload:
+          $ref: '#/components/schemas/DraftPayload'
+      additionalProperties: false
+      required:
+      - type
+      - payload
+      description: NEW_PLACE prohibits targets; NEW_OFFER requires targetPlaceId only; CHANGE requires both matching ACTIVE
+        targets, prefills full public snapshot and freezes its base revision. Targets never change.
+    Correction:
+      type: object
+      properties:
+        reviewedVersionId: *id002
+        payload:
+          $ref: '#/components/schemas/Payload'
+        expectedCatalogRowVersion:
+          type: integer
+          minimum: 0
+      additionalProperties: false
+      required:
+      - reviewedVersionId
+      - payload
+      description: MODERATOR/SENIOR_MODERATOR only, never own submission, current IN_REVIEW. For CHANGE expectedCatalogRowVersion
+        REQUIRED from comparison and checked against Catalog; prohibited for other types. Changed explicitly reviewed base
+        creates new version even if content hash equal.
+    SubmitResult:
+      type: object
+      properties:
+        submissionId: *id002
+        status:
+          enum: *id003
+        versionId: *id002
+        versionNo:
+          type: integer
+          minimum: 1
+        contentSha256:
+          type: string
+          pattern: ^[0-9a-f]{64}$
+        rowVersion:
+          type: integer
+          minimum: 0
+      additionalProperties: false
+      required:
+      - submissionId
+      - status
+      - versionId
+      - versionNo
+      - contentSha256
+      - rowVersion
+    Problem:
+      type: object
+      properties:
+        type:
+          type: string
+          default: about:blank
+        title:
+          type: string
+        status:
+          type: integer
+        detail:
+          type: string
+        instance:
+          type: string
+        code:
+          type: string
+        submissionId: *id002
+        errors:
+          type: array
+          items:
+            type: object
+            properties:
+              field:
+                type: string
+              code:
+                enum:
+                - REQUIRED
+                - TOO_LONG
+                - UNKNOWN_CATEGORY
+                - OFFERS_COUNT_INVALID
+                - INVALID_VALUE
+                - OUT_OF_RANGE
+                - SOURCE_OR_PROOF_REQUIRED
+                - INVALID_FORMAT
+                - DATE_RANGE_INVALID
+                - TIME_RANGE_INVALID
+                - TOO_MANY
+                - SCHEDULE_OVERLAP
+                - TARGET_INVALID
+                - MEDIA_ASSET_INVALID
+              message:
+                type: string
+            additionalProperties: false
+            required:
+            - field
+            - code
+            - message
+      additionalProperties: true
+      required:
+      - type
+      - title
+      - status
+    HistoryEntry:
+      type: object
+      properties:
+        id: *id002
+        submissionId: *id002
+        versionId: *id001
+        fromStatus:
+          type:
+          - string
+          - 'null'
+        toStatus:
+          enum: *id003
+        actorId: *id001
+        reason:
+          type:
+          - string
+          - 'null'
+        correlationId:
+          type: string
+        occurredAt:
+          type: string
+          format: date-time
+      additionalProperties: false
+      required:
+      - id
+      - submissionId
+      - toStatus
+      - occurredAt
+    Comparison:
+      type: object
+      properties:
+        currentSnapshot:
+          $ref: '#/components/schemas/Payload'
+        publicSnapshot:
+          oneOf:
+          - $ref: '#/components/schemas/Payload'
+          - type: 'null'
+        catalogRowVersion:
+          type:
+          - integer
+          - 'null'
+        changedFields:
+          type: array
+          items:
+            type: string
+            description: Sorted JSON Pointer
+      additionalProperties: false
+      required:
+      - currentSnapshot
+      - publicSnapshot
+      - catalogRowVersion
+      - changedFields
+    SubmissionMetadata:
+      type: object
+      properties:
+        id: &id004
+          type: string
+          format: uuid
+        type:
+          enum:
+          - NEW_PLACE
+          - NEW_OFFER
+          - CHANGE
+        status:
+          enum:
+          - DRAFT
+          - SUBMITTED
+          - VALIDATING
+          - PENDING_REVIEW
+          - IN_REVIEW
+          - CHANGES_REQUESTED
+          - APPROVED
+          - REJECTED
+          - CANCELLED
+          - PUBLISHED
+          - SUSPENDED
+          - ARCHIVED
+        authorId: *id004
+        targetPlaceId: &id005
+          type:
+          - string
+          - 'null'
+          format: uuid
+        targetOfferId: *id005
+        rowVersion:
+          type: integer
+          minimum: 0
+        draftBaseOfferRowVersion:
+          type:
+          - integer
+          - 'null'
+        publishedOfferIds:
+          type: [array, 'null']
+          items: *id004
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+      additionalProperties: false
+      required:
+      - id
+      - type
+      - status
+      - authorId
+      - rowVersion
+  responses:
+    Error400:
+      description: Malformed JSON/header/cursor or invalid idempotency key
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/Problem'
+    Error401:
+      description: Missing/invalid Bearer token, signature, issuer, audience, expiry, UUID sub/sid, or roles
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/Problem'
+    Error403:
+      description: Role/ownership of media/organization authorization denied
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/Problem'
+    Error404:
+      description: Absent or foreign private resource
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/Problem'
+    Error409:
+      description: INVALID_TRANSITION, IDEMPOTENCY_KEY_REUSED, or CATALOG_VERSION_CONFLICT
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/Problem'
+    Error412:
+      description: STALE_ROW_VERSION
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/Problem'
+    Error413:
+      description: Request exceeds 262144 bytes, including chunked body
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/Problem'
+    Error422:
+      description: 'Aggregated semantic violations; title: Заявка не прошла проверку'
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/Problem'
+    Error428:
+      description: If-Match missing
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/Problem'
+    Error429:
+      description: Per-user PostgreSQL UTC-minute rate limit exceeded
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/Problem'
+      headers:
+        Retry-After:
+          schema:
+            type: integer
+            minimum: 1
+          description: Seconds until next UTC minute
+    Error503:
+      description: DEPENDENCY_UNAVAILABLE; no partial mutation
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/Problem'

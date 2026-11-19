@@ -1,0 +1,568 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:student-discounts:submission:workflow:v1",
+  "title": "Trusted workflow input — submission.workflow.v1",
+  "description": "Kafka key is submissionId, except MediaAssetChecked uses mediaAssetId. All authorized topic writers are trusted for the entire workflow: producer string is not authentication. Production TLS/SASL and ACLs prohibit end-user writes. Exact reviewed tuple/current rowVersion required; moderation actor cannot equal author. SubmissionApproved only reaches APPROVED, never publication.",
+  "type": "object",
+  "properties": {
+    "eventId": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "eventType": {
+      "type": "string"
+    },
+    "schemaVersion": {
+      "const": 1
+    },
+    "producer": {
+      "type": "string"
+    },
+    "occurredAt": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "correlationId": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9._:-]{1,64}$"
+    },
+    "data": {
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "required": [
+    "eventId",
+    "eventType",
+    "schemaVersion",
+    "producer",
+    "occurredAt",
+    "correlationId",
+    "data"
+  ],
+  "oneOf": [
+    {
+      "type": "object",
+      "properties": {
+        "eventType": {
+          "const": "ReviewStarted"
+        },
+        "producer": {
+          "const": "moderation"
+        },
+        "data": {
+          "type": "object",
+          "properties": {
+            "submissionId": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "versionId": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "versionNo": {
+              "type": "integer",
+              "minimum": 1
+            },
+            "expectedRowVersion": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "actorId": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          "additionalProperties": false,
+          "required": [
+            "submissionId",
+            "versionId",
+            "versionNo",
+            "expectedRowVersion",
+            "actorId"
+          ]
+        }
+      },
+      "additionalProperties": true,
+      "required": [
+        "eventType",
+        "producer",
+        "data"
+      ]
+    },
+    {
+      "type": "object",
+      "properties": {
+        "eventType": {
+          "const": "SubmissionChangesRequested"
+        },
+        "producer": {
+          "const": "moderation"
+        },
+        "data": {
+          "type": "object",
+          "properties": {
+            "submissionId": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "versionId": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "versionNo": {
+              "type": "integer",
+              "minimum": 1
+            },
+            "expectedRowVersion": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "actorId": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "reason": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 2000
+            }
+          },
+          "additionalProperties": false,
+          "required": [
+            "submissionId",
+            "versionId",
+            "versionNo",
+            "expectedRowVersion",
+            "actorId",
+            "reason"
+          ]
+        }
+      },
+      "additionalProperties": true,
+      "required": [
+        "eventType",
+        "producer",
+        "data"
+      ]
+    },
+    {
+      "type": "object",
+      "properties": {
+        "eventType": {
+          "const": "SubmissionRejected"
+        },
+        "producer": {
+          "const": "moderation"
+        },
+        "data": {
+          "type": "object",
+          "properties": {
+            "submissionId": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "versionId": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "versionNo": {
+              "type": "integer",
+              "minimum": 1
+            },
+            "expectedRowVersion": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "actorId": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "reason": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 2000
+            }
+          },
+          "additionalProperties": false,
+          "required": [
+            "submissionId",
+            "versionId",
+            "versionNo",
+            "expectedRowVersion",
+            "actorId",
+            "reason"
+          ]
+        }
+      },
+      "additionalProperties": true,
+      "required": [
+        "eventType",
+        "producer",
+        "data"
+      ]
+    },
+    {
+      "type": "object",
+      "properties": {
+        "eventType": {
+          "const": "SubmissionApproved"
+        },
+        "producer": {
+          "const": "moderation"
+        },
+        "data": {
+          "type": "object",
+          "properties": {
+            "submissionId": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "versionId": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "versionNo": {
+              "type": "integer",
+              "minimum": 1
+            },
+            "expectedRowVersion": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "actorId": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "payload": {
+              "$ref": "payload-v1.schema.json"
+            }
+          },
+          "additionalProperties": false,
+          "required": [
+            "submissionId",
+            "versionId",
+            "versionNo",
+            "expectedRowVersion",
+            "actorId",
+            "payload"
+          ]
+        }
+      },
+      "additionalProperties": true,
+      "required": [
+        "eventType",
+        "producer",
+        "data"
+      ]
+    },
+    {
+      "type": "object",
+      "properties": {
+        "eventType": {
+          "const": "SubmissionReviewReopened"
+        },
+        "producer": {
+          "const": "moderation"
+        },
+        "data": {
+          "type": "object",
+          "properties": {
+            "submissionId": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "versionId": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "versionNo": {
+              "type": "integer",
+              "minimum": 1
+            },
+            "expectedRowVersion": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "actorId": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "reason": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 2000
+            }
+          },
+          "additionalProperties": false,
+          "required": [
+            "submissionId",
+            "versionId",
+            "versionNo",
+            "expectedRowVersion",
+            "actorId",
+            "reason"
+          ]
+        }
+      },
+      "additionalProperties": true,
+      "required": [
+        "eventType",
+        "producer",
+        "data"
+      ]
+    },
+    {
+      "type": "object",
+      "properties": {
+        "eventType": {
+          "const": "OfferPublished"
+        },
+        "producer": {
+          "const": "catalog"
+        },
+        "data": {
+          "type": "object",
+          "properties": {
+            "submissionId": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "versionId": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "versionNo": {
+              "type": "integer",
+              "minimum": 1
+            },
+            "expectedRowVersion": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "offerIds": {
+              "type": "array",
+              "minItems": 1,
+              "maxItems": 5,
+              "uniqueItems": true,
+              "items": {
+                "type": "string",
+                "format": "uuid"
+              }
+            }
+          },
+          "additionalProperties": false,
+          "required": [
+            "submissionId",
+            "versionId",
+            "versionNo",
+            "expectedRowVersion",
+            "offerIds"
+          ]
+        }
+      },
+      "additionalProperties": true,
+      "required": [
+        "eventType",
+        "producer",
+        "data"
+      ]
+    },
+    {
+      "type": "object",
+      "properties": {
+        "eventType": {
+          "const": "OfferPublicationConflicted"
+        },
+        "producer": {
+          "const": "catalog"
+        },
+        "data": {
+          "type": "object",
+          "properties": {
+            "submissionId": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "versionId": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "versionNo": {
+              "type": "integer",
+              "minimum": 1
+            },
+            "expectedRowVersion": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "reason": {
+              "const": "CATALOG_VERSION_CONFLICT"
+            }
+          },
+          "additionalProperties": false,
+          "required": [
+            "submissionId",
+            "versionId",
+            "versionNo",
+            "expectedRowVersion",
+            "reason"
+          ]
+        }
+      },
+      "additionalProperties": true,
+      "required": [
+        "eventType",
+        "producer",
+        "data"
+      ]
+    },
+    {
+      "type": "object",
+      "properties": {
+        "eventType": {
+          "const": "SubmissionSuspended"
+        },
+        "producer": {
+          "const": "catalog"
+        },
+        "data": {
+          "type": "object",
+          "properties": {
+            "submissionId": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "versionId": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "versionNo": {
+              "type": "integer",
+              "minimum": 1
+            },
+            "expectedRowVersion": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "reason": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 2000
+            }
+          },
+          "additionalProperties": false,
+          "required": [
+            "submissionId",
+            "versionId",
+            "versionNo",
+            "expectedRowVersion",
+            "reason"
+          ]
+        }
+      },
+      "additionalProperties": true,
+      "required": [
+        "eventType",
+        "producer",
+        "data"
+      ]
+    },
+    {
+      "type": "object",
+      "properties": {
+        "eventType": {
+          "const": "SubmissionArchived"
+        },
+        "producer": {
+          "const": "catalog"
+        },
+        "data": {
+          "type": "object",
+          "properties": {
+            "submissionId": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "versionId": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "versionNo": {
+              "type": "integer",
+              "minimum": 1
+            },
+            "expectedRowVersion": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "reason": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 2000
+            }
+          },
+          "additionalProperties": false,
+          "required": [
+            "submissionId",
+            "versionId",
+            "versionNo",
+            "expectedRowVersion",
+            "reason"
+          ]
+        }
+      },
+      "additionalProperties": true,
+      "required": [
+        "eventType",
+        "producer",
+        "data"
+      ]
+    },
+    {
+      "type": "object",
+      "properties": {
+        "eventType": {
+          "const": "MediaAssetChecked"
+        },
+        "producer": {
+          "const": "media"
+        },
+        "data": {
+          "type": "object",
+          "properties": {
+            "mediaAssetId": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "status": {
+              "enum": [
+                "QUARANTINED",
+                "PROCESSING",
+                "CLEAN",
+                "REJECTED"
+              ]
+            },
+            "revision": {
+              "type": "integer",
+              "minimum": 0
+            }
+          },
+          "additionalProperties": false,
+          "required": [
+            "mediaAssetId",
+            "status",
+            "revision"
+          ]
+        }
+      },
+      "additionalProperties": true,
+      "required": [
+        "eventType",
+        "producer",
+        "data"
+      ]
+    }
+  ]
+}
