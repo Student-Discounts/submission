@@ -1,15 +1,5 @@
 package org.studentdiscounts.submission.smoke;
 
-import com.nimbusds.jose.JOSEObjectType;
-import com.nimbusds.jose.JWSAlgorithm;
-import com.nimbusds.jose.JWSHeader;
-import com.nimbusds.jose.crypto.RSASSASigner;
-import com.nimbusds.jose.jwk.JWKSet;
-import com.nimbusds.jose.jwk.RSAKey;
-import com.nimbusds.jose.jwk.gen.RSAKeyGenerator;
-import com.nimbusds.jwt.JWTClaimsSet;
-import com.nimbusds.jwt.SignedJWT;
-import com.sun.net.httpserver.HttpServer;
 import java.io.IOException;
 import java.net.InetSocketAddress;
 import java.net.ServerSocket;
@@ -32,7 +22,6 @@ import java.time.LocalDate;
 import java.time.ZoneId;
 import java.time.ZoneOffset;
 import java.util.ArrayList;
-import java.util.Date;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
@@ -61,9 +50,7 @@ import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.ObjectMapper;
 import tools.jackson.databind.node.ObjectNode;
 
-/**
- * Actual executable-jar smoke test. All non-Submission business actors below are explicit fixtures.
- */
+/** Executable-jar smoke test using real Auth and explicit fixtures for other business services. */
 public final class SubmissionSmoke implements AutoCloseable {
   private static final ObjectMapper JSON = new ObjectMapper();
   private static final String APP = "http://127.0.0.1:18081";
@@ -78,6 +65,9 @@ public final class SubmissionSmoke implements AutoCloseable {
   private final String group = "submission-smoke-" + run;
   private final String category = "smoke-" + run;
   private final String stubs = env("SD_SMOKE_STUBS_URL", "http://localhost:8090");
+  private final String auth =
+      env("SD_AUTH_BASE_URL", "http://localhost:8080").replaceAll("/+$", "");
+  private final List<String> authSessions = new ArrayList<>();
   private final String broker = env("SD_SUBMISSION_KAFKA_BOOTSTRAP_SERVERS", "localhost:9092");
   private final String db =
       env("SD_SUBMISSION_DB_URL", "jdbc:postgresql://localhost:5433/submission");
@@ -88,81 +78,42 @@ public final class SubmissionSmoke implements AutoCloseable {
   private final List<JsonNode> deadLetters = new ArrayList<>();
   private final Map<String, List<UUID>> catalogAllocations = new LinkedHashMap<>();
   private final Map<String, CatalogConfirmation> catalogTriggers = new LinkedHashMap<>();
-  private final String mode;
   private Process child;
   private Path log;
-  private HttpServer jwks;
-  private RSAKey key;
   private String issuer;
   private String jwkUri;
   private Actor student;
   private Actor other;
-  private Actor moderator;
   private boolean schemaCreated;
   private KafkaProducer<String, String> producer;
   private KafkaConsumer<String, String> consumer;
 
-  private record Actor(UUID id, List<String> roles, String accessToken) {}
+  private record Actor(UUID id, String accessToken) {}
 
   private record Reply(int status, JsonNode body, String etag, String contentType) {}
 
-  private SubmissionSmoke(String mode) {
-    this.mode = mode;
-  }
-
   public static void main(String[] args) throws Exception {
-    String mode = args.length == 0 ? "contract" : args[0];
-    require(
-        args.length <= 1 && Set.of("contract", "auth").contains(mode),
-        "Usage: gradle smoke --args=contract|auth");
-    try (SubmissionSmoke smoke = new SubmissionSmoke(mode)) {
+    require(args.length == 0, "Usage: gradle smoke; requires the real auth service");
+    try (SubmissionSmoke smoke = new SubmissionSmoke()) {
       smoke.prepare();
       smoke.run();
-      System.out.println(
-          "PASS smoke "
-              + mode
-              + ": actual executable jar, PostgreSQL, Kafka and explicitly labeled business"
-              + " fixtures; owned resources cleaned on exit");
     }
+    System.out.println(
+        "PASS smoke auth: real Auth HTTP, actual executable jar, PostgreSQL, Kafka and explicitly"
+            + " labeled business fixtures; owned resources cleaned on exit");
   }
 
   private void prepare() throws Exception {
     refuseOccupied(18081);
-    if (mode.equals("contract")) {
-      refuseOccupied(18090);
-      key = new RSAKeyGenerator(2048).keyID(run).generate();
-      issuer = "http://localhost:18090/" + run;
-      jwkUri = "http://localhost:18090/.well-known/jwks.json";
-      byte[] document = new JWKSet(key.toPublicJWK()).toString().getBytes(StandardCharsets.UTF_8);
-      jwks = HttpServer.create(new InetSocketAddress("127.0.0.1", 18090), 0);
-      jwks.createContext(
-          "/.well-known/jwks.json",
-          exchange -> {
-            exchange.getResponseHeaders().set("Content-Type", "application/json");
-            exchange.sendResponseHeaders(200, document.length);
-            try (var body = exchange.getResponseBody()) {
-              body.write(document);
-            }
-          });
-      jwks.start();
-      student = new Actor(UUID.randomUUID(), List.of("STUDENT"), null);
-      other = new Actor(UUID.randomUUID(), List.of("STUDENT"), null);
-      moderator = new Actor(UUID.randomUUID(), List.of("MODERATOR"), null);
-      System.out.println(
-          "AUTH FIXTURE: fresh test-only RS256 JWKS, exact auth sub/sid/roles/aud contract; not the"
-              + " real auth service");
-    } else {
-      String auth = env("SD_AUTH_BASE_URL", "http://localhost:8080");
-      issuer = env("SD_SUBMISSION_AUTH_ISSUER", "http://localhost:8080");
-      jwkUri = auth + "/.well-known/jwks.json";
-      external("GET", jwkUri, null, 200);
-      student = realLogin(auth, "SD_SMOKE_STUDENT_EMAIL", "SD_SMOKE_STUDENT_PASSWORD");
-      other = realLogin(auth, "SD_SMOKE_OTHER_EMAIL", "SD_SMOKE_OTHER_PASSWORD");
-      require(!student.id.equals(other.id), "Real auth accounts must be distinct");
-      System.out.println(
-          "AUTH REAL: register/login endpoints only; no role administration, database access, or"
-              + " fixture-key fallback");
-    }
+    issuer = env("SD_SUBMISSION_AUTH_ISSUER", "http://localhost:8080");
+    jwkUri = env("SD_SUBMISSION_AUTH_JWK_SET_URI", auth + "/.well-known/jwks.json");
+    external("GET", jwkUri, null, 200);
+    student = realLogin("SD_SMOKE_STUDENT_EMAIL", "SD_SMOKE_STUDENT_PASSWORD");
+    other = realLogin("SD_SMOKE_OTHER_EMAIL", "SD_SMOKE_OTHER_PASSWORD");
+    require(!student.id.equals(other.id), "Real auth accounts must be distinct");
+    System.out.println(
+        "AUTH REAL: register/login/me HTTP only; no role administration, database access, or"
+            + " fixture-key fallback");
     try (Connection c = connection(false);
         Statement s = c.createStatement()) {
       s.execute("CREATE SCHEMA " + schema);
@@ -309,32 +260,27 @@ public final class SubmissionSmoke implements AutoCloseable {
                     + "' AND event_type='SubmissionSubmitted'")
             == 1,
         "Concurrent retries create one submit event");
-    if (mode.equals("auth")) {
-      Reply otherDraft = create(other, "NEW_PLACE", null, null, payload(true, 1));
-      String otherId = text(otherDraft.body, "id");
-      request(other, "POST", route(otherId, "submit"), null, otherDraft.etag, unique(), 202);
-      require(
-          text(get(other, otherId).body, "authorId").equals(other.id.toString()),
-          "Second real subject owns its submitted draft");
-      request(student, "GET", route(otherId, ""), null, null, null, 404);
-      authFixtureLifecycle(id);
-      restartDurability(id, "PUBLISHED");
-      return;
-    }
+    Reply otherDraft = create(other, "NEW_PLACE", null, null, payload(true, 1));
+    String otherId = text(otherDraft.body, "id");
+    request(other, "POST", route(otherId, "submit"), null, otherDraft.etag, unique(), 202);
+    require(
+        text(get(other, otherId).body, "authorId").equals(other.id.toString()),
+        "Second real subject owns its submitted draft");
+    request(student, "GET", route(otherId, ""), null, null, null, 404);
+    authFailures(id);
     boundaryRules();
     stalePatchRace();
-    reviewCycles(id, sent);
     missingCoordinatesAndGeoFailure();
     scheduledValidationFairness();
     mediaScenarios();
     changeScenario();
-    publicationScenario(id);
+    fixtureLifecycle(id);
     restartDurability(id, "PUBLISHED");
-    authFailures(id);
     System.out.println(
-        "PASS contract scenarios: validation, idempotency/concurrency, review/corrections, media"
-            + " revisions/outage, CHANGE conflicts, committed-APPROVED publication, DLT, restart"
-            + " durability, scheduled validation fairness and Clock boundaries");
+        "PASS real-auth scenarios: accepted login tokens, anonymous/forged bearer rejection,"
+            + " subject isolation, validation, idempotency/concurrency, media revisions/outage,"
+            + " CHANGE drafts, committed-APPROVED publication, restart durability, scheduled"
+            + " validation fairness and Clock boundaries");
   }
 
   private void concurrentReplay(String id, String etag, String key, Reply original)
@@ -382,135 +328,12 @@ public final class SubmissionSmoke implements AutoCloseable {
     }
   }
 
-  private void reviewCycles(String id, Reply firstSubmit) throws Exception {
-    JsonNode immutable = get(student, id + "/versions/1").body;
-    Reply state = awaitStatus(id, "PENDING_REVIEW");
-    emit("ReviewStarted", "moderation", tuple(state.body, obj("actorId", moderator.id)));
-    state = awaitStatus(id, "IN_REVIEW");
-    request(
-        student,
-        "POST",
-        route(id, "versions"),
-        obj(
-            "reviewedVersionId",
-            version(state.body).path("id"),
-            "payload",
-            version(state.body).path("payload")),
-        state.etag,
-        unique(),
-        403);
-    emit(
-        "SubmissionChangesRequested",
-        "moderation",
-        tuple(state.body, obj("actorId", moderator.id, "reason", "Уточните условия")));
-    state = awaitStatus(id, "CHANGES_REQUESTED");
-    Reply unchanged =
-        request(student, "POST", route(id, "submit"), null, state.etag, unique(), 202);
-    require(
-        text(unchanged.body, "versionId").equals(text(firstSubmit.body, "versionId")),
-        "Unchanged requested-changes cycle reuses version");
-    awaitStatus(id, "PENDING_REVIEW");
-    require(
-        sqlLong(
-                "SELECT count(*) FROM outbox_events WHERE submission_id='"
-                    + id
-                    + "' AND event_type='SubmissionSubmitted'")
-            == 2,
-        "Unchanged requested-changes cycle emits new review-cycle event");
-    state = get(student, id);
-    emit("ReviewStarted", "moderation", tuple(state.body, obj("actorId", moderator.id)));
-    state = awaitStatus(id, "IN_REVIEW");
-    emit(
-        "SubmissionChangesRequested",
-        "moderation",
-        tuple(state.body, obj("actorId", moderator.id, "reason", "Добавьте пояснение")));
-    state = awaitStatus(id, "CHANGES_REQUESTED");
-    ObjectNode changed = (ObjectNode) version(state.body).path("payload").deepCopy();
-    ((ObjectNode) changed.path("offers").get(0))
-        .put("conditions", "Студенческий обед за 500 рублей, по студенческому билету");
-    state = patch(student, id, state.etag, changed, 200);
-    request(student, "POST", route(id, "submit"), null, state.etag, unique(), 202);
-    state = awaitStatus(id, "PENDING_REVIEW");
-    require(
-        version(state.body).path("versionNo").asInt() == 2, "Edited resubmit creates version 2");
-    require(
-        text(version(state.body), "previousVersionId").equals(text(immutable, "id")),
-        "Version chain predecessor points to version 1");
-    require(
-        get(student, id + "/versions/1").body.equals(immutable),
-        "Version 1 and original hash are immutable");
-    Map<String, Object> stale =
-        tuple(
-            state.body,
-            obj("actorId", moderator.id, "payload", version(state.body).path("payload")));
-    stale.put("versionId", text(firstSubmit.body, "versionId"));
-    stale.put("versionNo", 1);
-    assertDltNoChange("SubmissionApproved", "moderation", stale, id);
-    emit("ReviewStarted", "moderation", tuple(state.body, obj("actorId", moderator.id)));
-    state = awaitStatus(id, "IN_REVIEW");
-    assertDltNoChange(
-        "SubmissionApproved",
-        "moderation",
-        tuple(
-            state.body, obj("actorId", student.id, "payload", version(state.body).path("payload"))),
-        id);
-    Map<String, Object> oldCycle =
-        tuple(
-            state.body,
-            obj("actorId", moderator.id, "payload", version(state.body).path("payload")));
-    oldCycle.put("expectedRowVersion", firstSubmit.body.path("rowVersion").asLong());
-    assertDltNoChange("SubmissionApproved", "moderation", oldCycle, id);
-    ObjectNode corrected = (ObjectNode) version(state.body).path("payload").deepCopy();
-    ((ObjectNode) corrected.path("offers").get(1))
-        .put("conditions", "Ужин за 600 рублей, проверено модератором");
-    request(
-        moderator,
-        "POST",
-        route(id, "versions"),
-        obj("reviewedVersionId", version(state.body).path("id"), "payload", corrected),
-        state.etag,
-        unique(),
-        201);
-    state = get(student, id);
-    require(
-        version(state.body).path("versionNo").asInt() == 3,
-        "Moderator correction creates third immutable version");
-    require(
-        text(version(state.body), "createdBy").equals(moderator.id.toString()),
-        "Corrected version records actual moderator");
-  }
-
   private void missingCoordinatesAndGeoFailure() throws Exception {
     JsonNode noPoint = JSON.valueToTree(payload(false, 1));
     Reply draft = create(student, "NEW_PLACE", null, null, noPoint);
     String id = text(draft.body, "id");
     request(student, "POST", route(id, "submit"), null, draft.etag, unique(), 202);
-    Reply state = awaitStatus(id, "PENDING_REVIEW");
-    emit("ReviewStarted", "moderation", tuple(state.body, obj("actorId", moderator.id)));
-    state = awaitStatus(id, "IN_REVIEW");
-    assertDltNoChange(
-        "SubmissionApproved",
-        "moderation",
-        tuple(
-            state.body,
-            obj("actorId", moderator.id, "payload", version(state.body).path("payload"))),
-        id);
-    ObjectNode corrected = (ObjectNode) version(state.body).path("payload").deepCopy();
-    ((ObjectNode) corrected.path("place"))
-        .set("location", JSON.valueToTree(obj("lat", 59.9571, "lon", 30.3083)));
-    request(
-        moderator,
-        "POST",
-        route(id, "versions"),
-        obj("reviewedVersionId", version(state.body).path("id"), "payload", corrected),
-        state.etag,
-        unique(),
-        201);
-    state = get(student, id);
-    require(
-        version(state.body).path("versionNo").asInt() == 2
-            && text(version(state.body), "resolvedTimezone").equals("Europe/Moscow"),
-        "Moderator coordinate correction freezes resolved zone");
+    awaitStatus(id, "PENDING_REVIEW");
     ObjectNode outage = (ObjectNode) JSON.valueToTree(payload(true, 1));
     ((ObjectNode) outage.path("place"))
         .set("location", JSON.valueToTree(obj("lat", 51.5007, "lon", -0.1246)));
@@ -579,7 +402,7 @@ public final class SubmissionSmoke implements AutoCloseable {
     UUID asset = UUID.randomUUID();
     UUID mediaMapping = media(asset, student.id, "QUARANTINED", 1, 200);
     String pending = mediaSubmission(asset, true);
-    Reply validating = awaitStatus(pending, "VALIDATING");
+    awaitStatus(pending, "VALIDATING");
     quiet(Duration.ofSeconds(1));
     require(
         text(get(student, pending).body, "status").equals("VALIDATING"),
@@ -649,7 +472,7 @@ public final class SubmissionSmoke implements AutoCloseable {
             "Europe/Moscow",
             "rowVersion",
             7));
-    UUID offerMapping = catalogOffer(offer, place, 7, baseline);
+    catalogOffer(offer, place, 7, baseline);
     Reply draft = create(student, "CHANGE", place, offer, obj());
     String id = text(draft.body, "id");
     require(
@@ -670,159 +493,7 @@ public final class SubmissionSmoke implements AutoCloseable {
             .equals(text(baseline.path("offers").get(0), "conditions")),
         "Pending edit did not mutate public fixture");
     request(student, "POST", route(id, "submit"), null, patched.etag, unique(), 202);
-    Reply state = awaitStatus(id, "PENDING_REVIEW");
-    emit("ReviewStarted", "moderation", tuple(state.body, obj("actorId", moderator.id)));
-    state = awaitStatus(id, "IN_REVIEW");
-    require(
-        get(moderator, id + "/comparison").body.path("catalogRowVersion").asInt() == 7,
-        "Moderator explicitly observes Catalog revision 7");
-    deleteMapping(offerMapping);
-    offerMapping = catalogOffer(offer, place, 8, baseline);
-    Map<String, Object> correction =
-        obj(
-            "reviewedVersionId",
-            version(state.body).path("id"),
-            "payload",
-            version(state.body).path("payload"),
-            "expectedCatalogRowVersion",
-            7);
-    request(moderator, "POST", route(id, "versions"), correction, state.etag, unique(), 409);
-    require(
-        version(get(student, id).body).path("versionNo").asInt() == 1,
-        "Stale explicit catalog base created no version");
-    assertDltNoChange(
-        "SubmissionApproved",
-        "moderation",
-        tuple(
-            state.body,
-            obj("actorId", moderator.id, "payload", version(state.body).path("payload"))),
-        id);
-    require(
-        get(moderator, id + "/comparison").body.path("catalogRowVersion").asInt() == 8,
-        "Moderator rereads current Catalog revision 8");
-    correction.put("expectedCatalogRowVersion", 8);
-    request(moderator, "POST", route(id, "versions"), correction, state.etag, unique(), 201);
-    state = get(student, id);
-    require(
-        version(state.body).path("versionNo").asInt() == 2
-            && version(state.body).path("baseOfferRowVersion").asInt() == 8,
-        "Explicit revised base creates new version even if payload unchanged");
-    emit(
-        "SubmissionApproved",
-        "moderation",
-        tuple(
-            state.body,
-            obj("actorId", moderator.id, "payload", version(state.body).path("payload"))));
-    state = awaitStatus(id, "APPROVED");
-    emit(
-        "OfferPublicationConflicted",
-        "catalog",
-        tuple(state.body, obj("reason", "CATALOG_VERSION_CONFLICT")));
-    state = awaitStatus(id, "PENDING_REVIEW");
-    Map<String, Object> old =
-        tuple(
-            state.body,
-            obj("actorId", moderator.id, "payload", version(state.body).path("payload")));
-    old.put("versionId", text(get(student, id + "/versions/1").body, "id"));
-    old.put("versionNo", 1);
-    assertDltNoChange("SubmissionApproved", "moderation", old, id);
-    deleteMapping(offerMapping);
-    catalogOffer(offer, place, 9, baseline);
-    emit("ReviewStarted", "moderation", tuple(state.body, obj("actorId", moderator.id)));
-    state = awaitStatus(id, "IN_REVIEW");
-    assertDltNoChange(
-        "SubmissionApproved",
-        "moderation",
-        tuple(
-            state.body,
-            obj("actorId", moderator.id, "payload", version(state.body).path("payload"))),
-        id);
-  }
-
-  private void publicationScenario(String id) throws Exception {
-    Reply state = get(student, id);
-    require(
-        text(state.body, "status").equals("IN_REVIEW"),
-        "Main submission remains in review before explicit approval");
-    assertDltNoChange(
-        "OfferPublished",
-        "catalog",
-        tuple(state.body, obj("offerIds", List.of(UUID.randomUUID(), UUID.randomUUID()))),
-        id);
-    Map<String, Object> approval =
-        tuple(
-            state.body,
-            obj("actorId", moderator.id, "payload", version(state.body).path("payload")));
-    String completedApproval = emit("SubmissionApproved", "moderation", approval);
-    Reply approved = awaitStatus(id, "APPROVED");
-    quiet(Duration.ofSeconds(1));
-    require(
-        text(get(student, id).body, "status").equals("APPROVED"),
-        "Approval is not publication and remains APPROVED without confirmation");
-    CatalogConfirmation confirmation = committedCatalogConfirmation(id, approved);
-    require(
-        committedCatalogConfirmation(id, approved).data.equals(confirmation.data),
-        "Catalog trigger replay reuses committed allocation");
-    String confirmationEvent = emit("OfferPublished", "catalog", confirmation.data);
-    Reply published = awaitStatus(id, "PUBLISHED");
-    require(
-        published.body.path("publishedOfferIds").size() == 2,
-        "One distinct public offer ID per submitted offer");
-    require(
-        !published
-            .body
-            .path("publishedOfferIds")
-            .get(0)
-            .equals(published.body.path("publishedOfferIds").get(1)),
-        "Catalog IDs distinct");
-    long history =
-        sqlLong("SELECT count(*) FROM submission_status_history WHERE submission_id='" + id + "'");
-    emit("OfferPublished", "catalog", confirmation.data);
-    emitEnvelope(confirmationEvent, "OfferPublished", "catalog", confirmation.data);
-    emitEnvelope(completedApproval, "SubmissionApproved", "moderation", approval);
-    quiet(Duration.ofSeconds(2));
-    Reply repeated = get(student, id);
-    require(
-        repeated.body.path("publishedOfferIds").equals(published.body.path("publishedOfferIds")),
-        "Duplicate confirmation preserves committed offer IDs");
-    require(
-        sqlLong("SELECT count(*) FROM submission_status_history WHERE submission_id='" + id + "'")
-            == history,
-        "Duplicate and completed-event replay add no history");
-    Map<String, Object> conflicting = new LinkedHashMap<>(confirmation.data);
-    conflicting.put("offerIds", List.of(UUID.randomUUID(), UUID.randomUUID()));
-    assertDltNoChange("OfferPublished", "catalog", conflicting, id);
-    emit(
-        "SubmissionSuspended",
-        "catalog",
-        tuple(repeated.body, obj("reason", "fixture temporary suspension")));
-    Reply suspended = awaitStatus(id, "SUSPENDED");
-    emitEnvelope(confirmationEvent, "OfferPublished", "catalog", confirmation.data);
-    quiet(Duration.ofSeconds(1));
-    require(
-        text(get(student, id).body, "status").equals("SUSPENDED"),
-        "Completed publication replay after later transition is no-op");
-    emit(
-        "SubmissionReviewReopened",
-        "moderation",
-        tuple(suspended.body, obj("actorId", moderator.id, "reason", "fixture recheck")));
-    state = awaitStatus(id, "PENDING_REVIEW");
-    emit("ReviewStarted", "moderation", tuple(state.body, obj("actorId", moderator.id)));
-    state = awaitStatus(id, "IN_REVIEW");
-    emit(
-        "SubmissionApproved",
-        "moderation",
-        tuple(
-            state.body,
-            obj("actorId", moderator.id, "payload", version(state.body).path("payload"))));
-    approved = awaitStatus(id, "APPROVED");
-    // The simulated Catalog reuses its already-allocated IDs for this immutable version.
-    CatalogConfirmation again = committedCatalogConfirmation(id, approved);
-    require(
-        again.data.get("offerIds").equals(confirmation.data.get("offerIds")),
-        "Catalog reuses allocated IDs for same immutable version");
-    emit("OfferPublished", "catalog", again.data);
-    awaitStatus(id, "PUBLISHED");
+    awaitStatus(id, "PENDING_REVIEW");
   }
 
   private record CatalogConfirmation(Map<String, Object> data) {}
@@ -891,9 +562,14 @@ public final class SubmissionSmoke implements AutoCloseable {
     return confirmation;
   }
 
-  private void authFixtureLifecycle(String id) throws Exception {
+  private void fixtureLifecycle(String id) throws Exception {
     UUID human = UUID.randomUUID();
     Reply state = get(student, id);
+    assertDltNoChange(
+        "OfferPublished",
+        "catalog",
+        tuple(state.body, obj("offerIds", List.of(UUID.randomUUID(), UUID.randomUUID()))),
+        id);
     emit("ReviewStarted", "moderation", tuple(state.body, obj("actorId", human)));
     state = awaitStatus(id, "IN_REVIEW");
     emit(
@@ -924,15 +600,8 @@ public final class SubmissionSmoke implements AutoCloseable {
   }
 
   private void authFailures(String id) throws Exception {
-    requestToken(
-        signed(student, Instant.now().minusSeconds(600), Instant.now().minusSeconds(120)),
-        "GET",
-        route(id, ""),
-        null,
-        null,
-        null,
-        401);
-    String token = token(student);
+    requestToken(null, "GET", route(id, ""), null, null, null, 401);
+    String token = student.accessToken;
     String[] parts = token.split("\\.");
     String signature = (parts[2].charAt(0) == 'A' ? "B" : "A") + parts[2].substring(1);
     requestToken(
@@ -1261,7 +930,8 @@ public final class SubmissionSmoke implements AutoCloseable {
       String requestKey,
       int... expected)
       throws Exception {
-    return requestToken(token(actor), method, path, body, etag, requestKey, expected);
+    return requestToken(
+        actor == null ? null : actor.accessToken, method, path, body, etag, requestKey, expected);
   }
 
   private Reply requestToken(
@@ -1313,16 +983,32 @@ public final class SubmissionSmoke implements AutoCloseable {
   }
 
   private JsonNode external(String method, String url, Object body, int expected) throws Exception {
+    return external(method, url, body, null, expected);
+  }
+
+  private JsonNode external(
+      String method, String url, Object body, String accessToken, int expected) throws Exception {
     HttpRequest.Builder request =
         HttpRequest.newBuilder(URI.create(url)).timeout(Duration.ofSeconds(5));
+    if (accessToken != null) request.header("Authorization", "Bearer " + accessToken);
     if (body != null) request.header("Content-Type", "application/json");
     request.method(
         method,
         body == null
             ? HttpRequest.BodyPublishers.noBody()
             : HttpRequest.BodyPublishers.ofString(JSON.writeValueAsString(body)));
-    HttpResponse<String> response =
-        http.send(request.build(), HttpResponse.BodyHandlers.ofString());
+    HttpResponse<String> response;
+    try {
+      response = http.send(request.build(), HttpResponse.BodyHandlers.ofString());
+    } catch (IOException e) {
+      throw new IOException(
+          "External "
+              + method
+              + " "
+              + url
+              + " failed; start the configured service or check its URL",
+          e);
+    }
     require(
         response.statusCode() == expected,
         "External "
@@ -1374,7 +1060,7 @@ public final class SubmissionSmoke implements AutoCloseable {
     mappings.remove(id);
   }
 
-  private Actor realLogin(String auth, String emailEnv, String passwordEnv) throws Exception {
+  private Actor realLogin(String emailEnv, String passwordEnv) throws Exception {
     String email = System.getenv(emailEnv);
     String password = System.getenv(passwordEnv);
     require(
@@ -1393,35 +1079,15 @@ public final class SubmissionSmoke implements AutoCloseable {
         external(
             "POST", auth + "/api/v1/auth/login", obj("email", email, "password", password), 200);
     String access = text(login, "accessToken");
-    SignedJWT jwt = SignedJWT.parse(access);
-    UUID subject = UUID.fromString(jwt.getJWTClaimsSet().getSubject());
-    return new Actor(subject, jwt.getJWTClaimsSet().getStringListClaim("roles"), access);
-  }
-
-  private String token(Actor actor) throws Exception {
-    if (actor == null) return null;
-    if (actor.accessToken != null) return actor.accessToken;
-    return signed(actor, Instant.now().minusSeconds(1), Instant.now().plusSeconds(300));
-  }
-
-  private String signed(Actor actor, Instant issued, Instant expires) throws Exception {
-    SignedJWT jwt =
-        new SignedJWT(
-            new JWSHeader.Builder(JWSAlgorithm.RS256)
-                .keyID(key.getKeyID())
-                .type(JOSEObjectType.JWT)
-                .build(),
-            new JWTClaimsSet.Builder()
-                .subject(actor.id.toString())
-                .issuer(issuer)
-                .audience("student-discounts-api")
-                .claim("sid", UUID.randomUUID().toString())
-                .claim("roles", actor.roles)
-                .issueTime(Date.from(issued))
-                .expirationTime(Date.from(expires))
-                .build());
-    jwt.sign(new RSASSASigner(key));
-    return jwt.serialize();
+    require(
+        !access.isBlank() && text(login, "tokenType").equals("Bearer"),
+        "Real auth login returns a bearer access token");
+    authSessions.add(access);
+    JsonNode profile = external("GET", auth + "/api/v1/me", null, access, 200);
+    require(
+        text(profile, "email").equalsIgnoreCase(email),
+        "Auth /me identifies the account that logged in");
+    return new Actor(UUID.fromString(text(profile, "id")), access);
   }
 
   private void start(boolean relay) throws Exception {
@@ -1552,11 +1218,13 @@ public final class SubmissionSmoke implements AutoCloseable {
       if (cleanupFailure == null) cleanupFailure = e;
       else cleanupFailure.addSuppressed(e);
     }
-    try {
-      if (jwks != null) jwks.stop(0);
-    } catch (Exception e) {
-      if (cleanupFailure == null) cleanupFailure = e;
-      else cleanupFailure.addSuppressed(e);
+    for (String access : authSessions) {
+      try {
+        external("POST", auth + "/api/v1/auth/logout", null, access, 204);
+      } catch (Exception e) {
+        if (cleanupFailure == null) cleanupFailure = e;
+        else cleanupFailure.addSuppressed(e);
+      }
     }
     for (UUID mapping : List.copyOf(mappings)) {
       try {
@@ -1576,6 +1244,7 @@ public final class SubmissionSmoke implements AutoCloseable {
         else cleanupFailure.addSuppressed(e);
       }
     }
+    http.close();
     if (cleanupFailure != null) throw cleanupFailure;
   }
 

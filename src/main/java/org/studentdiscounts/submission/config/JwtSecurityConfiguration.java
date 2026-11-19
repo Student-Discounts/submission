@@ -1,62 +1,50 @@
 package org.studentdiscounts.submission.config;
 
-import java.net.URI;
-import java.time.Clock;
-import java.time.Duration;
-import org.springframework.boot.context.properties.EnableConfigurationProperties;
-import org.springframework.boot.security.oauth2.server.resource.autoconfigure.OAuth2ResourceServerProperties;
+import java.util.Collection;
+import java.util.Objects;
+import java.util.UUID;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
-import org.springframework.context.annotation.Import;
-import org.springframework.http.client.SimpleClientHttpRequestFactory;
-import org.springframework.security.oauth2.core.DelegatingOAuth2TokenValidator;
-import org.springframework.security.oauth2.jose.jws.SignatureAlgorithm;
-import org.springframework.security.oauth2.jwt.JwtDecoder;
-import org.springframework.security.oauth2.jwt.JwtIssuerValidator;
-import org.springframework.security.oauth2.jwt.JwtTimestampValidator;
-import org.springframework.security.oauth2.jwt.NimbusJwtDecoder;
-import org.springframework.security.oauth2.server.resource.authentication.JwtAuthenticationConverter;
-import org.springframework.security.oauth2.server.resource.authentication.JwtGrantedAuthoritiesConverter;
-import org.springframework.web.client.RestTemplate;
+import org.springframework.security.oauth2.core.OAuth2TokenValidator;
+import org.springframework.security.oauth2.core.OAuth2TokenValidatorResult;
+import org.springframework.security.oauth2.jwt.Jwt;
+import org.springframework.security.oauth2.jwt.JwtClaimNames;
+import org.springframework.security.oauth2.jwt.JwtClaimValidator;
 
 @Configuration(proxyBeanMethods = false)
-@EnableConfigurationProperties(OAuth2ResourceServerProperties.class)
-@Import({SubmissionConfiguration.class, AuthTokenContractValidator.class})
 public class JwtSecurityConfiguration {
   @Bean
-  public JwtDecoder jwtDecoder(
-      OAuth2ResourceServerProperties properties, AuthTokenContractValidator contract, Clock clock) {
-    var jwt = properties.getJwt();
-    String issuer = requiredEndpoint(jwt.getIssuerUri(), "JWT issuer");
-    String jwks = requiredEndpoint(jwt.getJwkSetUri(), "JWT JWK URI");
-    var http = new SimpleClientHttpRequestFactory();
-    http.setConnectTimeout(Duration.ofSeconds(2));
-    http.setReadTimeout(Duration.ofSeconds(3));
-    var decoder =
-        NimbusJwtDecoder.withJwkSetUri(jwks)
-            .jwsAlgorithm(SignatureAlgorithm.RS256)
-            .restOperations(new RestTemplate(http))
-            .build();
-    var timestamp = new JwtTimestampValidator(Duration.ofSeconds(60));
-    timestamp.setClock(clock);
-    decoder.setJwtValidator(
-        new DelegatingOAuth2TokenValidator<>(timestamp, new JwtIssuerValidator(issuer), contract));
-    return decoder;
+  OAuth2TokenValidator<Jwt> accessTokenExpirationValidator() {
+    return new JwtClaimValidator<>(JwtClaimNames.EXP, Objects::nonNull);
   }
 
-  private static String requiredEndpoint(String value, String name) {
-    if (value == null || value.isBlank()) throw new IllegalArgumentException(name + " is required");
-    SubmissionProperties.requireHttp(URI.create(value), name);
-    return value;
-  }
-
+  /** The submission domain and per-user rate limiter require a canonical UUID identity. */
   @Bean
-  public JwtAuthenticationConverter jwtAuthenticationConverter() {
-    var authorities = new JwtGrantedAuthoritiesConverter();
-    authorities.setAuthoritiesClaimName("roles");
-    authorities.setAuthorityPrefix("ROLE_");
-    var converter = new JwtAuthenticationConverter();
-    converter.setJwtGrantedAuthoritiesConverter(authorities);
-    return converter;
+  OAuth2TokenValidator<Jwt> submissionSubjectValidator() {
+    return new JwtClaimValidator<Object>(
+        JwtClaimNames.SUB,
+        value -> {
+          if (!(value instanceof String subject)) return false;
+          try {
+            return UUID.fromString(subject).toString().equalsIgnoreCase(subject);
+          } catch (IllegalArgumentException invalid) {
+            return false;
+          }
+        });
+  }
+
+  /**
+   * Check only the representation consumed by Spring's roles converter, not auth's role catalog.
+   */
+  @Bean
+  OAuth2TokenValidator<Jwt> submissionRolesValidator() {
+    var validator =
+        new JwtClaimValidator<Object>(
+            "roles",
+            value ->
+                value instanceof Collection<?> roles
+                    && roles.stream().allMatch(String.class::isInstance));
+    return jwt ->
+        jwt.hasClaim("roles") ? validator.validate(jwt) : OAuth2TokenValidatorResult.success();
   }
 }

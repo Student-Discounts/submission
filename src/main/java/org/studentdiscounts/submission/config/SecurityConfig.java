@@ -22,7 +22,11 @@ import tools.jackson.databind.ObjectMapper;
 @Configuration(proxyBeanMethods = false)
 @EnableMethodSecurity
 @EnableWebSecurity
-@Import({JwtSecurityConfiguration.class, SubmissionCorsConfiguration.class})
+@Import({
+  JwtSecurityConfiguration.class,
+  SubmissionCorsConfiguration.class,
+  SubmissionConfiguration.class
+})
 public class SecurityConfig {
   @Bean
   SecurityFilterChain securityFilterChain(

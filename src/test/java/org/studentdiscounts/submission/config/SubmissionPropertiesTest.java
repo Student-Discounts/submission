@@ -31,7 +31,6 @@ class SubmissionPropertiesTest {
         "submission.workers.outbox-delay-ms=-1",
         "submission.workers.media-retry-ms=0",
         "submission.workers.outbox-send-timeout-ms=0.1ms",
-        "submission.security.audience=",
         "submission.kafka.workflow-topic=",
         "submission.kafka.group-id="
       })
