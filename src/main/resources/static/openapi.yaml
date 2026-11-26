@@ -1055,6 +1055,11 @@ components:
           type:
           - string
           - 'null'
+        basePlaceRowVersion:
+          type:
+          - integer
+          - 'null'
+          minimum: 0
       additionalProperties: false
       required:
       - id
@@ -1106,6 +1111,11 @@ components:
           type:
           - integer
           - 'null'
+        draftBasePlaceRowVersion:
+          type:
+          - integer
+          - 'null'
+          minimum: 0
         publishedOfferIds:
           type: [array, 'null']
           items: *id002
@@ -1328,6 +1338,11 @@ components:
           type:
           - integer
           - 'null'
+        draftBasePlaceRowVersion:
+          type:
+          - integer
+          - 'null'
+          minimum: 0
         publishedOfferIds:
           type: [array, 'null']
           items: *id004
