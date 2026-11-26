@@ -218,7 +218,8 @@ class PostgresWorkflowIT {
           status,
           status == SubmissionStatus.CHANGES_REQUESTED ? store.latest(row).payload() : null,
           row.currentVersionNo(),
-          row.draftBaseOfferRowVersion());
+          row.draftBaseOfferRowVersion(),
+          row.draftBasePlaceRowVersion());
       return null;
     });
   }
@@ -268,7 +269,7 @@ class PostgresWorkflowIT {
     UUID place = UUID.randomUUID(), offer = UUID.randomUUID();
     JsonNode publicSnapshot = full();
     when(clients.offer(offer))
-        .thenReturn(new BusinessClients.Offer(offer, place, "ACTIVE", 7, publicSnapshot));
+        .thenReturn(new BusinessClients.Offer(offer, place, "ACTIVE", 7, 3, publicSnapshot));
     var created =
         commands.create(
             author,
@@ -280,8 +281,10 @@ class PostgresWorkflowIT {
                     + offer
                     + "\",\"payload\":{}}"));
     UUID id = UUID.fromString(created.body().path("id").asText());
+    assertThat(created.body().has("draftBasePlaceRowVersion")).isFalse();
     commands.submit(author, id, 0, "submit");
     var first = store.latest(store.find(id));
+    assertThat(first.basePlaceRowVersion()).isEqualTo(3);
     fixtureStatus(id, SubmissionStatus.IN_REVIEW);
     SubmissionActor reviewer = moderator();
     int rowVersion = store.find(id).rowVersion();
@@ -294,7 +297,7 @@ class PostgresWorkflowIT {
                     + first.payload()
                     + ",\"expectedCatalogRowVersion\":7}");
     when(clients.offer(offer))
-        .thenReturn(new BusinessClients.Offer(offer, place, "ACTIVE", 8, publicSnapshot));
+        .thenReturn(new BusinessClients.Offer(offer, place, "ACTIVE", 8, 4, publicSnapshot));
     assertThat(queries.comparison(reviewer, id).path("catalogRowVersion").asInt()).isEqualTo(8);
     assertThatThrownBy(() -> corrections.correct(reviewer, id, rowVersion, "stale", body))
         .isInstanceOf(SubmissionException.class)
@@ -304,10 +307,12 @@ class PostgresWorkflowIT {
     body.put("expectedCatalogRowVersion", 8);
     var corrected = corrections.correct(reviewer, id, rowVersion, "fresh", body);
     assertThat(corrected.status()).isEqualTo(201);
+    assertThat(corrected.body().has("basePlaceRowVersion")).isFalse();
     var second = store.latest(store.find(id));
     assertThat(second.previousVersionId()).isEqualTo(first.id());
     assertThat(second.versionNo()).isEqualTo(2);
     assertThat(second.baseOfferRowVersion()).isEqualTo(8);
+    assertThat(second.basePlaceRowVersion()).isEqualTo(3);
     assertThat(second.createdBy()).isEqualTo(reviewer.id());
     assertThat(store.version(id, 1)).isEqualTo(first);
     assertThat(second.resolvedTimezone()).isEqualTo("Europe/Moscow");

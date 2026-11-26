@@ -26,11 +26,13 @@ import tools.jackson.databind.node.ObjectNode;
 @Repository
 public class WorkflowRepository {
   private static final String CONSUMER = "submission-workflow-v1";
+  static final String PUBLICATION_METADATA = "SubmissionPublicationMetadata";
+  static final String PUBLICATION_METADATA_TOPIC = "catalog.publication.metadata.v1";
   private static final String CURRENT_VERSION =
       """
       select s.id,s.author_id,s.type::text,s.status::text,s.target_offer_id,s.row_version,
              s.published_offer_ids,v.id version_id,v.version_no,v.payload::text,
-             v.base_offer_row_version,v.resolved_timezone
+             v.base_offer_row_version,v.base_place_row_version,v.resolved_timezone
       from submissions s
       join submission_versions v on v.submission_id=s.id and v.version_no=s.current_version_no
       where s.id=:id
@@ -220,7 +222,7 @@ public class WorkflowRepository {
                :actor,:reason,:correlation,:now)
         """,
         params);
-    Long sequence =
+    long sequence =
         jdbc.queryForObject(
             """
             select coalesce(max(aggregate_sequence),0)+1 from outbox_events where submission_id=:id
@@ -229,14 +231,23 @@ public class WorkflowRepository {
             Long.class);
     UUID eventId = SubmissionIds.newId();
     ObjectNode event = statusChanged(row, target, actor, reason, correlation, eventId, sequence);
+    enqueue(params, eventId, sequence, event);
+    if (target == SubmissionStatus.APPROVED) {
+      UUID metadataId = SubmissionIds.newId();
+      enqueue(params, metadataId, sequence + 1, publicationMetadata(row, correlation, metadataId));
+    }
+  }
+
+  private void enqueue(MapSqlParameterSource params, UUID eventId, long sequence, ObjectNode event) {
     params
         .addValue("eventId", eventId)
         .addValue("sequence", sequence)
+        .addValue("eventType", event.path("eventType").asText())
         .addValue("payload", event.toString());
     jdbc.update(
         """
         insert into outbox_events(id,submission_id,aggregate_sequence,event_type,payload,occurred_at)
-        values(:eventId,:id,:sequence,'SubmissionStatusChanged',cast(:payload as jsonb),:now)
+        values(:eventId,:id,:sequence,:eventType,cast(:payload as jsonb),:now)
         """,
         params);
   }
@@ -276,8 +287,32 @@ public class WorkflowRepository {
         rs.getInt("version_no"),
         json.readTree(rs.getString("payload")),
         rs.getObject("base_offer_row_version", Integer.class),
+        rs.getObject("base_place_row_version", Integer.class),
         rs.getString("resolved_timezone"),
         ids);
+  }
+
+  private ObjectNode publicationMetadata(WorkflowSubmission row, String correlation, UUID id) {
+    ObjectNode event = envelope(PUBLICATION_METADATA, correlation, id);
+    event
+        .putObject("data")
+        .put("submissionId", row.id().toString())
+        .put("versionId", row.versionId().toString())
+        .put("versionNo", row.versionNo())
+        .put("type", row.type().name())
+        .put("resolvedTimezone", row.timezone())
+        .put("basePlaceRowVersion", row.basePlaceRowVersion());
+    return event;
+  }
+
+  private ObjectNode envelope(String type, String correlation, UUID id) {
+    return json.createObjectNode()
+        .put("eventId", id.toString())
+        .put("eventType", type)
+        .put("schemaVersion", 1)
+        .put("producer", "submission")
+        .put("occurredAt", clock.instant().toString())
+        .put("correlationId", correlation);
   }
 
   private ObjectNode statusChanged(
@@ -289,14 +324,7 @@ public class WorkflowRepository {
       UUID eventId,
       long sequence) {
     ObjectNode event =
-        json.createObjectNode()
-            .put("eventId", eventId.toString())
-            .put("eventType", "SubmissionStatusChanged")
-            .put("schemaVersion", 1)
-            .put("producer", "submission")
-            .put("occurredAt", clock.instant().toString())
-            .put("correlationId", correlation)
-            .put("aggregateSequence", sequence);
+        envelope("SubmissionStatusChanged", correlation, eventId).put("aggregateSequence", sequence);
     ObjectNode data =
         event
             .putObject("data")

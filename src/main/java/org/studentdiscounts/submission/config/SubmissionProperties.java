@@ -47,6 +47,7 @@ public record SubmissionProperties(
   public record Dependencies(
       @NotNull URI catalogBaseUrl,
       @NotNull URI mediaBaseUrl,
+      @NotBlank String mediaServiceToken,
       @NotNull URI geoBaseUrl,
       URI organizationsBaseUrl) {
     public Dependencies {

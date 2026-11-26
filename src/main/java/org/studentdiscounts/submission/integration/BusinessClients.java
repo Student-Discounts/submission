@@ -32,7 +32,8 @@ public class BusinessClients {
       String timezone,
       int rowVersion) {}
 
-  public record Offer(UUID id, UUID placeId, String status, int rowVersion, JsonNode payload) {}
+  public record Offer(
+      UUID id, UUID placeId, String status, int rowVersion, int placeRowVersion, JsonNode payload) {}
 
   public record MediaAsset(UUID id, UUID ownerId, String status, long revision) {}
 
@@ -63,6 +64,7 @@ public class BusinessClients {
           "[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}");
   private final RestClient catalog;
   private final RestClient media;
+  private final String mediaServiceToken;
   private final RestClient geo;
   private final RestClient organizations;
 
@@ -77,6 +79,7 @@ public class BusinessClients {
     var dependencies = properties.dependencies();
     catalog = client(dependencies.catalogBaseUrl(), factory);
     media = client(dependencies.mediaBaseUrl(), factory);
+    mediaServiceToken = dependencies.mediaServiceToken();
     geo = client(dependencies.geoBaseUrl(), factory);
     organizations = client(dependencies.organizationsBaseUrl(), factory);
   }
@@ -135,13 +138,22 @@ public class BusinessClients {
       String status = text(offer, "status");
       if (!OFFER_STATES.contains(status)) throw new IllegalArgumentException();
       return new Offer(
-          actualId, uuid(offer, "placeId"), status, nonnegativeInt(offer, "rowVersion"), payload);
+          actualId,
+          uuid(offer, "placeId"),
+          status,
+          nonnegativeInt(offer, "rowVersion"),
+          nonnegativeInt(offer, "placeRowVersion"),
+          payload);
     });
   }
 
   public MediaAsset media(UUID id) {
     return checked(() -> {
-      JsonNode asset = get(media, "/media/v1/assets/{id}", id);
+      JsonNode asset =
+          response(
+              media.get()
+                  .uri("/media/v1/assets/{id}", id)
+                  .header("X-Service-Token", mediaServiceToken));
       UUID actualId = uuid(asset, "id");
       String status = text(asset, "status");
       if (!actualId.equals(id) || !MEDIA_STATES.contains(status))

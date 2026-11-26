@@ -74,7 +74,8 @@ public class AuthorSubmissionCommands {
                   request.place(),
                   request.offer(),
                   prepared.payload(),
-                  initial.base());
+                  initial.offerBase(),
+                  initial.placeBase());
           store.history(row, null, SubmissionStatus.DRAFT, null, actor.id(), null);
           return views.metadata(201, row);
         });
@@ -82,7 +83,7 @@ public class AuthorSubmissionCommands {
 
   private record CreateRequest(SubmissionType type, UUID place, UUID offer, JsonNode payload) {}
 
-  private record InitialSnapshot(ObjectNode payload, Integer base) {}
+  private record InitialSnapshot(ObjectNode payload, Integer offerBase, Integer placeBase) {}
 
   private CreateRequest createRequest(JsonNode body) {
     if (!body.isObject()) throw SubmissionException.invalid("", "INVALID_VALUE");
@@ -131,9 +132,11 @@ public class AuthorSubmissionCommands {
         if (!"ACTIVE".equals(offer.status()) || !request.place().equals(offer.placeId()))
           throw SubmissionException.invalid("targetOfferId", "TARGET_INVALID");
         return new InitialSnapshot(
-            (ObjectNode) PayloadJson.normalize(offer.payload()), offer.rowVersion());
+            (ObjectNode) PayloadJson.normalize(offer.payload()),
+            offer.rowVersion(),
+            offer.placeRowVersion());
       }
-      return new InitialSnapshot(initial, null);
+      return new InitialSnapshot(initial, null, null);
     } catch (BusinessClients.ReferenceNotFound missing) {
       throw SubmissionException.invalid("targetPlaceId", "TARGET_INVALID");
     }
@@ -162,7 +165,8 @@ public class AuthorSubmissionCommands {
               row.status(),
               prepared.payload(),
               row.currentVersionNo(),
-              row.draftBaseOfferRowVersion()));
+              row.draftBaseOfferRowVersion(),
+              row.draftBasePlaceRowVersion()));
     });
   }
 
@@ -201,7 +205,8 @@ public class AuthorSubmissionCommands {
           boolean changed =
               version == null
                   || !version.contentSha256().equals(hash)
-                  || !Objects.equals(version.baseOfferRowVersion(), row.draftBaseOfferRowVersion());
+                  || !Objects.equals(version.baseOfferRowVersion(), row.draftBaseOfferRowVersion())
+                  || !Objects.equals(version.basePlaceRowVersion(), row.draftBasePlaceRowVersion());
           if (changed)
             version =
                 store.append(
@@ -209,6 +214,7 @@ public class AuthorSubmissionCommands {
                     prepared.payload(),
                     hash,
                     row.draftBaseOfferRowVersion(),
+                    row.draftBasePlaceRowVersion(),
                     actor.id(),
                     prepared.zone());
           var submitted =
@@ -217,7 +223,8 @@ public class AuthorSubmissionCommands {
                   SubmissionStatus.SUBMITTED,
                   null,
                   version.versionNo(),
-                  row.draftBaseOfferRowVersion());
+                  row.draftBaseOfferRowVersion(),
+                  row.draftBasePlaceRowVersion());
           for (var asset : prepared.assets())
             store.recordMedia(version, asset.id(), asset.status(), asset.revision());
           store.history(
@@ -241,7 +248,8 @@ public class AuthorSubmissionCommands {
               SubmissionStatus.CANCELLED,
               null,
               row.currentVersionNo(),
-              row.draftBaseOfferRowVersion());
+              row.draftBaseOfferRowVersion(),
+              row.draftBasePlaceRowVersion());
       store.history(cancelled, row.status(), cancelled.status(), version, actor.id(), null);
       store.statusEvent(cancelled, row.status(), version, actor.id(), null);
       return views.metadata(200, cancelled);

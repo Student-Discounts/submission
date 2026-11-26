@@ -15,6 +15,7 @@
       "placeId": "019a0000-0000-7000-8000-000000000001",
       "status": "ACTIVE",
       "rowVersion": 7,
+      "placeRowVersion": 3,
       "payload": {
         "place": {
           "id": "019a0000-0000-7000-8000-000000000001",

@@ -9,6 +9,8 @@ import java.time.Instant;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
+import org.apache.kafka.clients.admin.AdminClient;
+import org.apache.kafka.clients.admin.NewTopic;
 import org.apache.kafka.clients.consumer.ConsumerConfig;
 import org.apache.kafka.clients.consumer.KafkaConsumer;
 import org.apache.kafka.clients.producer.ProducerConfig;
@@ -19,6 +21,7 @@ import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
 import org.springframework.boot.context.properties.bind.Binder;
 import org.springframework.boot.context.properties.source.MapConfigurationPropertySource;
+import org.springframework.jdbc.core.namedparam.MapSqlParameterSource;
 import org.springframework.jdbc.core.namedparam.NamedParameterJdbcTemplate;
 import org.springframework.jdbc.datasource.DataSourceTransactionManager;
 import org.springframework.jdbc.datasource.DriverManagerDataSource;
@@ -41,16 +44,18 @@ class KafkaLifecycleIT {
   static NamedParameterJdbcTemplate jdbc;
   static TransactionTemplate tx;
   static final ObjectMapper json = new ObjectMapper();
+  static final String METADATA_TOPIC = WorkflowRepository.PUBLICATION_METADATA_TOPIC;
   static final Clock clock = Clock.systemUTC();
 
   @BeforeAll
-  static void database() {
+  static void database() throws Exception {
     var ds =
         new DriverManagerDataSource(
             postgres.getJdbcUrl(), postgres.getUsername(), postgres.getPassword());
     Flyway.configure().dataSource(ds).load().migrate();
     jdbc = new NamedParameterJdbcTemplate(ds);
     tx = new TransactionTemplate(new DataSourceTransactionManager(ds));
+    createTopic(METADATA_TOPIC);
   }
 
   @Test
@@ -66,7 +71,7 @@ class KafkaLifecycleIT {
         .set("payload", fixture.payload());
     service.process(approved);
     assertEquals("APPROVED", status(fixture.id()));
-    assertEquals(1, count("outbox_events", fixture.id()));
+    assertEquals(2, count("outbox_events", fixture.id()));
     ObjectNode published = event("OfferPublished", "catalog", fixture, 1);
     published
         .withObject("data")
@@ -83,6 +88,7 @@ class KafkaLifecycleIT {
     duplicate.put("eventId", UUID.randomUUID().toString());
     service.process(duplicate);
     assertEquals(2, count("submission_status_history", fixture.id()));
+    assertEquals(3, count("outbox_events", fixture.id()));
     ObjectNode conflict = published.deepCopy();
     conflict.put("eventId", UUID.randomUUID().toString());
     conflict
@@ -174,27 +180,34 @@ class KafkaLifecycleIT {
 
   @Test
   void relayPublishesCommittedStableEnvelopeInSequenceAndCanResume() throws Exception {
-    var fixture = fixture("IN_REVIEW", "[]");
-    var service =
-        new WorkflowService(
-            new WorkflowRepository(jdbc, json, clock), tx, mock(BusinessClients.class));
+    UUID target = UUID.randomUUID(), place = UUID.randomUUID();
+    var fixture = fixture("IN_REVIEW", "[]", target, place);
+    var clients = mock(BusinessClients.class);
+    when(clients.offer(target))
+        .thenReturn(new BusinessClients.Offer(target, place, "ACTIVE", 7, 4, fixture.payload()));
+    var service = new WorkflowService(new WorkflowRepository(jdbc, json, clock), tx, clients);
+    assertEquals(0, count("outbox_events", fixture.id()));
     var approved = event("SubmissionApproved", "moderation", fixture, 0);
     approved
         .withObject("data")
         .put("actorId", UUID.randomUUID().toString())
         .set("payload", fixture.payload());
     service.process(approved);
+    service.process(approved);
+    var replay = approved.deepCopy().put("eventId", UUID.randomUUID().toString());
+    service.process(replay);
+    assertEquals(2, count("outbox_events", fixture.id()));
     var published = event("OfferPublished", "catalog", fixture, 1);
     published
         .withObject("data")
         .putArray("offerIds")
-        .add(UUID.randomUUID().toString())
-        .add(UUID.randomUUID().toString());
+        .add(target.toString());
     service.process(published);
     var suspended = event("SubmissionSuspended", "catalog", fixture, 2);
     suspended.withObject("data").put("reason", "CATALOG_SUSPENDED");
     service.process(suspended);
     String topic = "submission.events." + UUID.randomUUID();
+    createTopic(topic);
     var producerFactory =
         new DefaultKafkaProducerFactory<String, String>(
             Map.of(
@@ -210,7 +223,7 @@ class KafkaLifecycleIT {
                 true));
     var template = new KafkaTemplate<>(producerFactory);
     var relay = new OutboxRelay(new OutboxRepository(jdbc, clock), tx, template, properties(topic));
-    assertTrue(count("outbox_events", fixture.id()) > 0);
+    assertEquals(4, count("outbox_events", fixture.id()));
     try (var executor = java.util.concurrent.Executors.newFixedThreadPool(2)) {
       var other =
           new OutboxRelay(new OutboxRepository(jdbc, clock), tx, template, properties(topic));
@@ -233,20 +246,40 @@ class KafkaLifecycleIT {
                 StringDeserializer.class,
                 ConsumerConfig.VALUE_DESERIALIZER_CLASS_CONFIG,
                 StringDeserializer.class))) {
-      consumer.subscribe(List.of(topic));
+      consumer.subscribe(List.of(topic, METADATA_TOPIC));
       long deadline = System.nanoTime() + Duration.ofSeconds(20).toNanos();
       var sequences = new java.util.ArrayList<Integer>();
       var states = new java.util.ArrayList<String>();
-      while (sequences.size() < 3 && System.nanoTime() < deadline)
+      var metadata = new java.util.ArrayList<ObjectNode>();
+      while ((sequences.size() < 3 || metadata.isEmpty()) && System.nanoTime() < deadline)
         for (var record : consumer.poll(Duration.ofMillis(250))) {
           var value = json.readTree(record.value());
           if (fixture.id().toString().equals(value.path("data").path("submissionId").asText())) {
+            assertEquals(fixture.id().toString(), record.key());
+            if (record.topic().equals(METADATA_TOPIC)) {
+              metadata.add((ObjectNode) value);
+              continue;
+            }
             sequences.add(value.path("aggregateSequence").asInt());
             states.add(value.path("data").path("toStatus").asText());
           }
         }
-      assertEquals(List.of(1, 2, 3), sequences, "two relays cannot overtake an aggregate sequence");
+      assertEquals(List.of(1, 3, 4), sequences, "two relays cannot overtake an aggregate sequence");
       assertEquals(List.of("APPROVED", "PUBLISHED", "SUSPENDED"), states);
+      assertEquals(1, metadata.size());
+      var publishedMetadata = metadata.getFirst();
+      assertEquals("SubmissionPublicationMetadata", publishedMetadata.path("eventType").asText());
+      assertFalse(publishedMetadata.has("aggregateSequence"));
+      assertNotEquals(approved.path("eventId"), publishedMetadata.path("eventId"));
+      assertEquals(
+          json.createObjectNode()
+              .put("submissionId", fixture.id().toString())
+              .put("versionId", fixture.version().toString())
+              .put("versionNo", 1)
+              .put("type", "CHANGE")
+              .put("resolvedTimezone", "Europe/Moscow")
+              .put("basePlaceRowVersion", 3),
+          publishedMetadata.path("data"));
     } finally {
       producerFactory.destroy();
     }
@@ -468,7 +501,7 @@ class KafkaLifecycleIT {
     // Build a genuine CHANGE snapshot without altering an immutable version.
     var clients = mock(BusinessClients.class);
     when(clients.offer(target))
-        .thenReturn(new BusinessClients.Offer(target, place, "ACTIVE", 7, fixture.payload()));
+        .thenReturn(new BusinessClients.Offer(target, place, "ACTIVE", 7, 3, fixture.payload()));
     // A public base must be captured at version insertion; fixture's null base cannot approve.
     // Start at APPROVED to exercise the Catalog-confirmed conflict path specifically.
     jdbc.update(
@@ -547,6 +580,7 @@ class KafkaLifecycleIT {
                 Map.of(
                     "submission.dependencies.catalog-base-url", "http://localhost:8090",
                     "submission.dependencies.media-base-url", "http://localhost:8090",
+                    "submission.dependencies.media-service-token", "test-media-token",
                     "submission.dependencies.geo-base-url", "http://localhost:8090",
                     "submission.kafka.workflow-topic", eventsTopic,
                     "submission.kafka.events-topic", eventsTopic)))
@@ -556,32 +590,45 @@ class KafkaLifecycleIT {
   record Fixture(UUID id, UUID author, UUID version, ObjectNode payload) {}
 
   static Fixture fixture(String state, String attachments) {
+    return fixture(state, attachments, null, null);
+  }
+
+  private static Fixture fixture(String state, String attachments, UUID target, UUID place) {
     UUID id = UUID.randomUUID(), author = UUID.randomUUID(), version = UUID.randomUUID();
     ObjectNode payload =
         (ObjectNode)
             json.readTree(
-                "{\"place\":{\"location\":{\"lat\":59.9,\"lon\":30.3}},\"offers\":[{},{}],\"attachments\":"
+                "{\"place\":{\"location\":{\"lat\":59.9,\"lon\":30.3}},\"offers\":"
+                    + (target == null ? "[{},{}]" : "[{}]")
+                    + ",\"attachments\":"
                     + attachments
                     + "}");
     jdbc.update(
-        "insert into submissions(id,type,author_id,draft_payload)"
-            + " values(:id,'NEW_PLACE',:author,cast(:payload as jsonb))",
-        Map.of("id", id, "author", author, "payload", payload.toString()));
+        """
+        insert into submissions(id,type,author_id,draft_payload,target_place_id,target_offer_id)
+        values(:id,cast(:type as submission_type),:author,cast(:payload as jsonb),:place,:target)
+        """,
+        new MapSqlParameterSource()
+            .addValue("id", id)
+            .addValue("type", target == null ? "NEW_PLACE" : "CHANGE")
+            .addValue("author", author)
+            .addValue("payload", payload.toString())
+            .addValue("place", place)
+            .addValue("target", target));
     jdbc.update(
-        "insert into"
-            + " submission_versions(id,submission_id,version_no,payload,payload_schema_version,content_sha256,created_by,resolved_timezone)"
-            + " values(:version,:id,1,cast(:payload as jsonb),1,:hash,:author,'Europe/Moscow')",
-        Map.of(
-            "version",
-            version,
-            "id",
-            id,
-            "payload",
-            payload.toString(),
-            "hash",
-            PayloadJson.hash(payload),
-            "author",
-            author));
+        """
+        insert into submission_versions(id,submission_id,version_no,payload,payload_schema_version,
+              content_sha256,created_by,resolved_timezone,base_offer_row_version,base_place_row_version)
+        values(:version,:id,1,cast(:payload as jsonb),1,:hash,:author,'Europe/Moscow',:offerBase,:placeBase)
+        """,
+        new MapSqlParameterSource()
+            .addValue("version", version)
+            .addValue("id", id)
+            .addValue("payload", payload.toString())
+            .addValue("hash", PayloadJson.hash(payload))
+            .addValue("author", author)
+            .addValue("offerBase", target == null ? null : 7)
+            .addValue("placeBase", place == null ? null : 3));
     jdbc.update(
         "update submissions set status=cast(:state as submission_status),current_version_no=1 where"
             + " id=:id",
@@ -605,6 +652,12 @@ class KafkaLifecycleIT {
         .put("versionNo", 1)
         .put("expectedRowVersion", row);
     return event;
+  }
+
+  private static void createTopic(String topic) throws Exception {
+    try (var admin = AdminClient.create(Map.of("bootstrap.servers", kafka.getBootstrapServers()))) {
+      admin.createTopics(List.of(new NewTopic(topic, 1, (short) 1))).all().get();
+    }
   }
 
   static String status(UUID id) {

@@ -26,6 +26,7 @@ class BusinessClientsTest {
   private final AtomicReference<String> body = new AtomicReference<>("{}");
   private final AtomicReference<Integer> status = new AtomicReference<>(200);
   private final AtomicReference<String> correlation = new AtomicReference<>();
+  private final AtomicReference<String> serviceToken = new AtomicReference<>();
 
   @BeforeEach
   void start() throws Exception {
@@ -35,6 +36,7 @@ class BusinessClientsTest {
         exchange -> {
           byte[] data = body.get().getBytes(StandardCharsets.UTF_8);
           correlation.set(exchange.getRequestHeaders().getFirst("X-Correlation-ID"));
+          serviceToken.set(exchange.getRequestHeaders().getFirst("X-Service-Token"));
           exchange.getResponseHeaders().set("Content-Type", "application/json");
           exchange.sendResponseHeaders(status.get(), data.length);
           exchange.getResponseBody().write(data);
@@ -49,6 +51,7 @@ class BusinessClientsTest {
     Map<String, String> endpoints = new HashMap<>();
     endpoints.put("submission.dependencies.catalog-base-url", base);
     endpoints.put("submission.dependencies.media-base-url", base);
+    endpoints.put("submission.dependencies.media-service-token", "test-media-token");
     endpoints.put("submission.dependencies.geo-base-url", base);
     if (organizationConfigured)
       endpoints.put("submission.dependencies.organizations-base-url", base);
@@ -137,8 +140,10 @@ class BusinessClientsTest {
             + id
             + "\",\"placeId\":\""
             + place
-            + "\",\"status\":\"ACTIVE\",\"rowVersion\":7,\"payload\":{\"place\":{},\"offers\":[{}]}}");
+            + "\",\"status\":\"ACTIVE\",\"rowVersion\":7,\"placeRowVersion\":3,"
+            + "\"payload\":{\"place\":{},\"offers\":[{}]}}");
     assertThat(clients.offer(id).rowVersion()).isEqualTo(7);
+    assertThat(clients.offer(id).placeRowVersion()).isEqualTo(3);
     assertThat(clients.offer(id).placeId()).isEqualTo(place);
     body.set(
         "{\"id\":\""
@@ -166,8 +171,13 @@ class BusinessClientsTest {
             + id
             + "\",\"placeId\":\""
             + place
-            + "\",\"status\":\"ACTIVE\",\"rowVersion\":0,\"payload\":{\"place\":{},\"offers\":[{}]}}");
+            + "\",\"status\":\"ACTIVE\",\"rowVersion\":0,\"placeRowVersion\":0,"
+            + "\"payload\":{\"place\":{},\"offers\":[{}]}}");
     assertThat(clients.offer(id).rowVersion()).isZero();
+    assertThat(clients.offer(id).placeRowVersion()).isZero();
+    body.set(body.get().replace("\"placeRowVersion\":0", "\"placeRowVersion\":-1"));
+    assertThatThrownBy(() -> clients.offer(id))
+        .isInstanceOf(BusinessClients.DependencyUnavailable.class);
     body.set(
         "{\"id\":\""
             + id
@@ -179,24 +189,28 @@ class BusinessClientsTest {
   }
 
   @Test
-  void everyBusinessClientPropagatesCurrentCorrelationIdAtRequestTime() {
+  void businessClientsPropagateCorrelationButOnlyMediaReceivesTheServiceToken() {
     UUID id = UUID.randomUUID();
     try {
       MDC.put("correlationId", "business-request-one");
       body.set("{\"code\":\"cafe\",\"isActive\":true}");
       clients.category("cafe");
       assertThat(correlation.get()).isEqualTo("business-request-one");
+      assertThat(serviceToken.get()).isNull();
       MDC.put("correlationId", "business-request-two");
       body.set(
           "{\"id\":\"" + id + "\",\"ownerId\":\"" + id + "\",\"status\":\"CLEAN\",\"revision\":0}");
       clients.media(id);
       assertThat(correlation.get()).isEqualTo("business-request-two");
+      assertThat(serviceToken.get()).isEqualTo("test-media-token");
       body.set("{\"timezone\":\"Europe/Moscow\"}");
       clients.timezone(PayloadJson.parse("{\"lat\":59.9,\"lon\":30.3}"));
       assertThat(correlation.get()).isEqualTo("business-request-two");
+      assertThat(serviceToken.get()).isNull();
       body.set("{\"allowed\":true,\"verified\":true}");
       clients.authorize(id, id);
       assertThat(correlation.get()).isEqualTo("business-request-two");
+      assertThat(serviceToken.get()).isNull();
       MDC.remove("correlationId");
       body.set("{\"code\":\"cafe\",\"isActive\":true}");
       clients.category("cafe");

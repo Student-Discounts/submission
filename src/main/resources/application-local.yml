@@ -15,6 +15,7 @@ submission:
   dependencies:
     catalog-base-url: ${SD_SUBMISSION_CATALOG_BASE_URL:http://localhost:8090}
     media-base-url: ${SD_SUBMISSION_MEDIA_BASE_URL:http://localhost:8090}
+    media-service-token: ${SD_SUBMISSION_MEDIA_SERVICE_TOKEN:local-media-service-token-change-me}
     geo-base-url: ${SD_SUBMISSION_GEO_BASE_URL:http://localhost:8090}
     organizations-base-url: ${SD_SUBMISSION_ORGANIZATIONS_BASE_URL:http://localhost:8090}
   cors:

@@ -56,6 +56,7 @@ public final class SubmissionSmoke implements AutoCloseable {
   private static final String APP = "http://127.0.0.1:18081";
   private static final String WORKFLOW = "submission.workflow.v1";
   private static final String EVENTS = "submission.events.v1";
+  private static final String PUBLICATION_METADATA = "catalog.publication.metadata.v1";
   private static final String DLT = WORKFLOW + ".DLT";
   private static final Duration DEADLINE = Duration.ofSeconds(30);
   private final HttpClient http =
@@ -122,7 +123,7 @@ public final class SubmissionSmoke implements AutoCloseable {
     try (AdminClient admin = AdminClient.create(Map.of("bootstrap.servers", broker))) {
       Set<String> existing = admin.listTopics().names().get(10, TimeUnit.SECONDS);
       List<NewTopic> missing = new ArrayList<>();
-      for (String topic : List.of(WORKFLOW, EVENTS, DLT))
+      for (String topic : List.of(WORKFLOW, EVENTS, DLT, PUBLICATION_METADATA))
         if (!existing.contains(topic)) missing.add(new NewTopic(topic, 1, (short) 1));
       if (!missing.isEmpty()) admin.createTopics(missing).all().get(10, TimeUnit.SECONDS);
     }
@@ -725,6 +726,8 @@ public final class SubmissionSmoke implements AutoCloseable {
             "ACTIVE",
             "rowVersion",
             revision,
+            "placeRowVersion",
+            0,
             "payload",
             payload));
   }

@@ -52,6 +52,7 @@ submission:
   dependencies:
     catalog-base-url: ${SD_SUBMISSION_CATALOG_BASE_URL}
     media-base-url: ${SD_SUBMISSION_MEDIA_BASE_URL}
+    media-service-token: ${SD_SUBMISSION_MEDIA_SERVICE_TOKEN}
     geo-base-url: ${SD_SUBMISSION_GEO_BASE_URL}
     organizations-base-url: ${SD_SUBMISSION_ORGANIZATIONS_BASE_URL:}
   limits:

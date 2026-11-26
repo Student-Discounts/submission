@@ -76,9 +76,11 @@ public class ReviewCorrections {
               && Objects.equals(previous.baseOfferRowVersion(), base)) {
             return views.version(200, row, previous);
           }
+          Integer placeBase = previous.basePlaceRowVersion();
           var version =
-              store.append(row, prepared.payload(), hash, base, actor.id(), prepared.zone());
-          var corrected = store.update(row, row.status(), null, version.versionNo(), base);
+              store.append(
+                  row, prepared.payload(), hash, base, placeBase, actor.id(), prepared.zone());
+          var corrected = store.update(row, row.status(), null, version.versionNo(), base, placeBase);
           for (var asset : prepared.assets())
             store.recordMedia(version, asset.id(), asset.status(), asset.revision());
           store.versionEvent(corrected, version, "SubmissionVersionCreated");

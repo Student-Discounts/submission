@@ -78,9 +78,13 @@ public class OutboxRelay {
   }
 
   private void send(OutboxRepository.Event event) {
+    String destination =
+        WorkflowRepository.PUBLICATION_METADATA.equals(event.type())
+            ? WorkflowRepository.PUBLICATION_METADATA_TOPIC
+            : topic;
     try {
       kafka
-          .send(topic, event.submissionId().toString(), event.payload())
+          .send(destination, event.submissionId().toString(), event.payload())
           .get(sendTimeout, TimeUnit.MILLISECONDS);
     } catch (InterruptedException interrupted) {
       Thread.currentThread().interrupt();

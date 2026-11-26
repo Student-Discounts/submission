@@ -70,6 +70,7 @@ services:
       SD_SUBMISSION_AUTH_JWK_SET_URI: ${SD_SUBMISSION_AUTH_JWK_SET_URI:-http://host.docker.internal:8080/.well-known/jwks.json}
       SD_SUBMISSION_CATALOG_BASE_URL: http://stubs:8080
       SD_SUBMISSION_MEDIA_BASE_URL: http://stubs:8080
+      SD_SUBMISSION_MEDIA_SERVICE_TOKEN: ${SD_SUBMISSION_MEDIA_SERVICE_TOKEN:-local-media-service-token-change-me}
       SD_SUBMISSION_GEO_BASE_URL: http://stubs:8080
       SD_SUBMISSION_ORGANIZATIONS_BASE_URL: http://stubs:8080
       SD_SUBMISSION_CORS_ALLOWED_ORIGINS: ${SD_SUBMISSION_CORS_ALLOWED_ORIGINS:-http://localhost:5173}

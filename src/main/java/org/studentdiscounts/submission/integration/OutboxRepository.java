@@ -12,7 +12,7 @@ import org.springframework.stereotype.Repository;
 /** Outbox row selection and acknowledgement; transport stays in the relay. */
 @Repository
 public class OutboxRepository {
-  record Event(UUID id, UUID submissionId, String payload) {}
+  record Event(UUID id, UUID submissionId, String type, String payload) {}
 
   private final NamedParameterJdbcTemplate jdbc;
   private final Clock clock;
@@ -27,7 +27,7 @@ public class OutboxRepository {
     List<Event> records =
         jdbc.query(
             """
-            select o.id,o.submission_id,o.payload::text from outbox_events o
+            select o.id,o.submission_id,o.event_type,o.payload::text from outbox_events o
             where o.published_at is null
               and not exists(select 1 from outbox_events earlier
                              where earlier.submission_id=o.submission_id and earlier.published_at is null
@@ -39,6 +39,7 @@ public class OutboxRepository {
                 new Event(
                     rs.getObject("id", UUID.class),
                     rs.getObject("submission_id", UUID.class),
+                    rs.getString("event_type"),
                     rs.getString("payload")));
     return records.isEmpty() ? Optional.empty() : Optional.of(records.getFirst());
   }

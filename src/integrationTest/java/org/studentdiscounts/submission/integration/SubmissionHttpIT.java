@@ -56,6 +56,7 @@ class SubmissionHttpIT {
     // An incomplete NEW_PLACE does not call these dependencies; any accidental call must fail.
     properties.add("submission.dependencies.catalog-base-url", () -> "http://127.0.0.1:1");
     properties.add("submission.dependencies.media-base-url", () -> "http://127.0.0.1:1");
+    properties.add("submission.dependencies.media-service-token", () -> "test-media-token");
     properties.add("submission.dependencies.geo-base-url", () -> "http://127.0.0.1:1");
     properties.add("submission.dependencies.organizations-base-url", () -> "");
   }

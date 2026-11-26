@@ -182,6 +182,7 @@ class SubmissionApiTest {
                 2,
                 null,
                 null,
+                null,
                 now,
                 now));
     mvc.perform(
@@ -233,6 +234,7 @@ class SubmissionApiTest {
                 null,
                 1,
                 1,
+                null,
                 null,
                 null,
                 now,

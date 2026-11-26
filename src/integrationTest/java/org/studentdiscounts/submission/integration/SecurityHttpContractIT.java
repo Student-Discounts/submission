@@ -52,6 +52,7 @@ class SecurityHttpContractIT {
         "submission.cors.allowed-origins=http://localhost:5173",
         "submission.dependencies.catalog-base-url=http://localhost:8090",
         "submission.dependencies.media-base-url=http://localhost:8090",
+        "submission.dependencies.media-service-token=test-media-token",
         "submission.dependencies.geo-base-url=http://localhost:8090");
     context.register(Fixture.class);
     context.refresh();

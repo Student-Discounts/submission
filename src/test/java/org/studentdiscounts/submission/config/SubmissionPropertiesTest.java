@@ -17,6 +17,7 @@ class SubmissionPropertiesTest {
           .withPropertyValues(
               "submission.dependencies.catalog-base-url=http://catalog.invalid/api",
               "submission.dependencies.media-base-url=http://media.invalid",
+              "submission.dependencies.media-service-token=test-media-token",
               "submission.dependencies.geo-base-url=http://geo.invalid");
 
   @ParameterizedTest
@@ -57,6 +58,12 @@ class SubmissionPropertiesTest {
   void productionCannotStartWithoutRequiredBusinessProviders() {
     new ApplicationContextRunner()
         .withUserConfiguration(SubmissionConfiguration.class)
+        .run(started -> assertThat(started).hasFailed());
+  }
+
+  @Test
+  void mediaServiceTokenIsRequired() {
+    context.withPropertyValues("submission.dependencies.media-service-token=")
         .run(started -> assertThat(started).hasFailed());
   }
 

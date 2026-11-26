@@ -80,6 +80,7 @@ class ValidationFairnessIT {
                     Map.of(
                         "submission.dependencies.catalog-base-url", "http://localhost:8090",
                         "submission.dependencies.media-base-url", "http://localhost:8090",
+                        "submission.dependencies.media-service-token", "test-media-token",
                         "submission.dependencies.geo-base-url", "http://localhost:8090",
                         "submission.workers.validation-batch-size", "2")))
             .bindOrCreate("submission", SubmissionProperties.class);

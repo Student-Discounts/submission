@@ -18,5 +18,6 @@ record WorkflowSubmission(
     int versionNo,
     JsonNode payload,
     Integer baseOfferRowVersion,
+    Integer basePlaceRowVersion,
     String timezone,
     List<UUID> publishedOfferIds) {}
