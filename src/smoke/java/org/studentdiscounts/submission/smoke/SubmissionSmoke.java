@@ -725,6 +725,8 @@ public final class SubmissionSmoke implements AutoCloseable {
             "ACTIVE",
             "rowVersion",
             revision,
+            "placeRowVersion",
+            revision,
             "payload",
             payload));
   }

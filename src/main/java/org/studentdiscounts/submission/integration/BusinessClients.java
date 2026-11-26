@@ -32,7 +32,13 @@ public class BusinessClients {
       String timezone,
       int rowVersion) {}
 
-  public record Offer(UUID id, UUID placeId, String status, int rowVersion, JsonNode payload) {}
+  public record Offer(
+      UUID id,
+      UUID placeId,
+      String status,
+      int rowVersion,
+      int placeRowVersion,
+      JsonNode payload) {}
 
   public record MediaAsset(UUID id, UUID ownerId, String status, long revision) {}
 
@@ -135,7 +141,12 @@ public class BusinessClients {
       String status = text(offer, "status");
       if (!OFFER_STATES.contains(status)) throw new IllegalArgumentException();
       return new Offer(
-          actualId, uuid(offer, "placeId"), status, nonnegativeInt(offer, "rowVersion"), payload);
+          actualId,
+          uuid(offer, "placeId"),
+          status,
+          nonnegativeInt(offer, "rowVersion"),
+          nonnegativeInt(offer, "placeRowVersion"),
+          payload);
     });
   }
 

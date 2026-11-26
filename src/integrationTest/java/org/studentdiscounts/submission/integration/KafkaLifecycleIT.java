@@ -468,7 +468,7 @@ class KafkaLifecycleIT {
     // Build a genuine CHANGE snapshot without altering an immutable version.
     var clients = mock(BusinessClients.class);
     when(clients.offer(target))
-        .thenReturn(new BusinessClients.Offer(target, place, "ACTIVE", 7, fixture.payload()));
+        .thenReturn(new BusinessClients.Offer(target, place, "ACTIVE", 7, 3, fixture.payload()));
     // A public base must be captured at version insertion; fixture's null base cannot approve.
     // Start at APPROVED to exercise the Catalog-confirmed conflict path specifically.
     jdbc.update(

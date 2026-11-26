@@ -268,7 +268,7 @@ class PostgresWorkflowIT {
     UUID place = UUID.randomUUID(), offer = UUID.randomUUID();
     JsonNode publicSnapshot = full();
     when(clients.offer(offer))
-        .thenReturn(new BusinessClients.Offer(offer, place, "ACTIVE", 7, publicSnapshot));
+        .thenReturn(new BusinessClients.Offer(offer, place, "ACTIVE", 7, 3, publicSnapshot));
     var created =
         commands.create(
             author,
@@ -294,7 +294,7 @@ class PostgresWorkflowIT {
                     + first.payload()
                     + ",\"expectedCatalogRowVersion\":7}");
     when(clients.offer(offer))
-        .thenReturn(new BusinessClients.Offer(offer, place, "ACTIVE", 8, publicSnapshot));
+        .thenReturn(new BusinessClients.Offer(offer, place, "ACTIVE", 8, 5, publicSnapshot));
     assertThat(queries.comparison(reviewer, id).path("catalogRowVersion").asInt()).isEqualTo(8);
     assertThatThrownBy(() -> corrections.correct(reviewer, id, rowVersion, "stale", body))
         .isInstanceOf(SubmissionException.class)
@@ -312,6 +312,29 @@ class PostgresWorkflowIT {
     assertThat(store.version(id, 1)).isEqualTo(first);
     assertThat(second.resolvedTimezone()).isEqualTo("Europe/Moscow");
     assertThat(corrections.correct(reviewer, id, rowVersion, "fresh", body)).isEqualTo(corrected);
+    assertThat(first.basePlaceRowVersion()).isEqualTo(3);
+    assertThat(second.basePlaceRowVersion()).isEqualTo(5);
+    assertThat(store.find(id).draftBasePlaceRowVersion()).isEqualTo(5);
+    var metadata =
+        jdbc.query(
+            "SELECT payload::text FROM publication_metadata_outbox WHERE submission_id=:id"
+                + " ORDER BY occurred_at,id",
+            Map.of("id", id),
+            (rs, n) -> parse(rs.getString(1)));
+    assertThat(metadata).hasSize(2);
+    for (var event : metadata) {
+      assertThat(event.path("eventType").asText()).isEqualTo("SubmissionPublicationMetadata");
+      assertThat(event.path("producer").asText()).isEqualTo("submission");
+      assertThat(event.path("data").path("submissionId").asText()).isEqualTo(id.toString());
+      assertThat(event.path("data").path("type").asText()).isEqualTo("CHANGE");
+      assertThat(event.path("data").path("resolvedTimezone").asText()).isEqualTo("Europe/Moscow");
+    }
+    assertThat(metadata.get(0).path("data").path("versionId").asText())
+        .isEqualTo(first.id().toString());
+    assertThat(metadata.get(0).path("data").path("basePlaceRowVersion").asInt()).isEqualTo(3);
+    assertThat(metadata.get(1).path("data").path("versionId").asText())
+        .isEqualTo(second.id().toString());
+    assertThat(metadata.get(1).path("data").path("basePlaceRowVersion").asInt()).isEqualTo(5);
   }
 
   @Test

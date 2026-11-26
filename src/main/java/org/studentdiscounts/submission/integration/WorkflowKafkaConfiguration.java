@@ -96,7 +96,9 @@ public class WorkflowKafkaConfiguration {
   KafkaAdmin.NewTopics localWorkflowTopics(SubmissionProperties properties) {
     String workflow = properties.kafka().workflowTopic();
     String events = properties.kafka().eventsTopic();
-    return new KafkaAdmin.NewTopics(topic(workflow), topic(events), topic(workflow + ".DLT"));
+    String metadata = properties.kafka().publicationMetadataTopic();
+    return new KafkaAdmin.NewTopics(
+        topic(workflow), topic(events), topic(metadata), topic(workflow + ".DLT"));
   }
 
   private static NewTopic topic(String name) {

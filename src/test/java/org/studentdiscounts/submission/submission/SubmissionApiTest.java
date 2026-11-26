@@ -183,7 +183,8 @@ class SubmissionApiTest {
                 null,
                 null,
                 now,
-                now));
+                now,
+                null));
     mvc.perform(
             post("/api/v1/submissions/" + id + "/submit")
                 .header("If-Match", "\"3\"")
@@ -236,7 +237,8 @@ class SubmissionApiTest {
                 null,
                 null,
                 now,
-                now));
+                now,
+                null));
 
     mvc.perform(
             post("/api/v1/submissions/" + id + "/submit")
