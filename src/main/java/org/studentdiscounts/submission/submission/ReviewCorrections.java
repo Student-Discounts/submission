@@ -49,7 +49,8 @@ public class ReviewCorrections {
     validateFields(body);
     UUID reviewed = SubmissionPreparation.optionalId(body, "reviewedVersionId");
     if (reviewed == null) throw SubmissionException.invalid("reviewedVersionId", "REQUIRED");
-    Integer base = checkedCatalogBase(initial, body.get("expectedCatalogRowVersion"));
+    CatalogBase catalogBase = checkedCatalogBase(initial, body.get("expectedCatalogRowVersion"));
+    Integer base = catalogBase.offer();
     JsonNode payload = body.get("payload");
     if (payload == null || !payload.isObject())
       throw SubmissionException.invalid("payload", "REQUIRED");
@@ -76,9 +77,16 @@ public class ReviewCorrections {
               && Objects.equals(previous.baseOfferRowVersion(), base)) {
             return views.version(200, row, previous);
           }
+          Integer placeBase =
+              Objects.equals(previous.baseOfferRowVersion(), base)
+                  ? previous.basePlaceRowVersion()
+                  : catalogBase.place();
           var version =
-              store.append(row, prepared.payload(), hash, base, actor.id(), prepared.zone());
-          var corrected = store.update(row, row.status(), null, version.versionNo(), base);
+              store.append(
+                  row, prepared.payload(), hash, base, placeBase, actor.id(), prepared.zone());
+          var corrected =
+              store.rebasePlaceDraft(
+                  store.update(row, row.status(), null, version.versionNo(), base), placeBase);
           for (var asset : prepared.assets())
             store.recordMedia(version, asset.id(), asset.status(), asset.revision());
           store.versionEvent(corrected, version, "SubmissionVersionCreated");
@@ -95,11 +103,13 @@ public class ReviewCorrections {
     }
   }
 
-  private Integer checkedCatalogBase(SubmissionStore.SubmissionRow row, JsonNode expectedBase) {
+  private record CatalogBase(Integer offer, Integer place) {}
+
+  private CatalogBase checkedCatalogBase(SubmissionStore.SubmissionRow row, JsonNode expectedBase) {
     if (row.type() != SubmissionType.CHANGE) {
       if (expectedBase != null)
         throw SubmissionException.invalid("expectedCatalogRowVersion", "INVALID_VALUE");
-      return null;
+      return new CatalogBase(null, null);
     }
     if (expectedBase == null
         || !expectedBase.isIntegralNumber()
@@ -115,9 +125,9 @@ public class ReviewCorrections {
           || offer.rowVersion() != base) {
         throw new SubmissionException(409, "CATALOG_VERSION_CONFLICT");
       }
+      return new CatalogBase(base, offer.placeRowVersion());
     } catch (BusinessClients.ReferenceNotFound missing) {
       throw new SubmissionException(409, "CATALOG_VERSION_CONFLICT");
     }
-    return base;
   }
 }

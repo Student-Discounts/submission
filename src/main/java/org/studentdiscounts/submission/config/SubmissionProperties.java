@@ -83,6 +83,7 @@ public record SubmissionProperties(
   public record Kafka(
       @NotBlank @DefaultValue("submission.workflow.v1") String workflowTopic,
       @NotBlank @DefaultValue("submission.events.v1") String eventsTopic,
+      @NotBlank @DefaultValue("catalog.publication.metadata.v1") String publicationMetadataTopic,
       @NotBlank @DefaultValue("submission-workflow-v1") String groupId,
       @DefaultValue("false") boolean localTopicsEnabled) {}
 

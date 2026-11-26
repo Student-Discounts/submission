@@ -162,6 +162,7 @@ class SubmissionPermissionsTest {
         null,
         null,
         now,
-        now);
+        now,
+        null);
   }
 }

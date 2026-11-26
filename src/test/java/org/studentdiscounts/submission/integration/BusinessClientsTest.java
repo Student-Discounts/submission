@@ -137,8 +137,9 @@ class BusinessClientsTest {
             + id
             + "\",\"placeId\":\""
             + place
-            + "\",\"status\":\"ACTIVE\",\"rowVersion\":7,\"payload\":{\"place\":{},\"offers\":[{}]}}");
+            + "\",\"status\":\"ACTIVE\",\"rowVersion\":7,\"placeRowVersion\":4,\"payload\":{\"place\":{},\"offers\":[{}]}}");
     assertThat(clients.offer(id).rowVersion()).isEqualTo(7);
+    assertThat(clients.offer(id).placeRowVersion()).isEqualTo(4);
     assertThat(clients.offer(id).placeId()).isEqualTo(place);
     body.set(
         "{\"id\":\""
@@ -166,8 +167,15 @@ class BusinessClientsTest {
             + id
             + "\",\"placeId\":\""
             + place
-            + "\",\"status\":\"ACTIVE\",\"rowVersion\":0,\"payload\":{\"place\":{},\"offers\":[{}]}}");
+            + "\",\"status\":\"ACTIVE\",\"rowVersion\":0,\"placeRowVersion\":0,\"payload\":{\"place\":{},\"offers\":[{}]}}");
     assertThat(clients.offer(id).rowVersion()).isZero();
+    assertThat(clients.offer(id).placeRowVersion()).isZero();
+    body.set(body.get().replace("\"placeRowVersion\":0", "\"placeRowVersion\":-1"));
+    assertThatThrownBy(() -> clients.offer(id))
+        .isInstanceOf(BusinessClients.DependencyUnavailable.class);
+    body.set(body.get().replace(",\"placeRowVersion\":-1", ""));
+    assertThatThrownBy(() -> clients.offer(id))
+        .isInstanceOf(BusinessClients.DependencyUnavailable.class);
     body.set(
         "{\"id\":\""
             + id

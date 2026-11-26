@@ -62,6 +62,7 @@ submission:
   kafka:
     workflow-topic: submission.workflow.v1
     events-topic: submission.events.v1
+    publication-metadata-topic: catalog.publication.metadata.v1
     group-id: ${SD_SUBMISSION_KAFKA_GROUP_ID:submission-workflow-v1}
     local-topics-enabled: false
   workers:

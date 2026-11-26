@@ -52,7 +52,8 @@ public class SubmissionStore {
       Integer draftBaseOfferRowVersion,
       List<UUID> publishedOfferIds,
       Instant createdAt,
-      Instant updatedAt) {}
+      Instant updatedAt,
+      Integer draftBasePlaceRowVersion) {}
 
   public record VersionRow(
       UUID id,
@@ -65,7 +66,8 @@ public class SubmissionStore {
       Integer baseOfferRowVersion,
       UUID createdBy,
       Instant createdAt,
-      String resolvedTimezone) {}
+      String resolvedTimezone,
+      Integer basePlaceRowVersion) {}
 
   private final RowMapper<SubmissionRow> submissionMapper =
       (result, index) ->
@@ -82,7 +84,8 @@ public class SubmissionStore {
               (Integer) result.getObject("draft_base_offer_row_version"),
               publishedOffers(result),
               result.getTimestamp("created_at").toInstant(),
-              result.getTimestamp("updated_at").toInstant());
+              result.getTimestamp("updated_at").toInstant(),
+              (Integer) result.getObject("draft_base_place_row_version"));
 
   private List<UUID> publishedOffers(ResultSet result) throws SQLException {
     var ids = result.getArray("published_offer_ids");
@@ -102,7 +105,8 @@ public class SubmissionStore {
               (Integer) result.getObject("base_offer_row_version"),
               result.getObject("created_by", UUID.class),
               result.getTimestamp("created_at").toInstant(),
-              result.getString("resolved_timezone"));
+              result.getString("resolved_timezone"),
+              (Integer) result.getObject("base_place_row_version"));
 
   private JsonNode parse(String value) {
     return value == null ? null : json.readTree(value);
@@ -157,7 +161,13 @@ public class SubmissionStore {
   }
 
   public VersionRow append(
-      SubmissionRow row, JsonNode payload, String hash, Integer base, UUID actor, String zone) {
+      SubmissionRow row,
+      JsonNode payload,
+      String hash,
+      Integer base,
+      Integer placeBase,
+      UUID actor,
+      String zone) {
     VersionRow old = latest(row);
     int number = old == null ? 1 : old.versionNo() + 1;
     UUID id = SubmissionIds.newId();
@@ -165,8 +175,9 @@ public class SubmissionStore {
     jdbc.update(
         """
         INSERT INTO submission_versions(id,submission_id,version_no,previous_version_id,payload,
-                payload_schema_version,content_sha256,base_offer_row_version,created_by,created_at,resolved_timezone)
-        VALUES(:id,:sid,:no,:prev,CAST(:payload AS jsonb),1,:hash,:base,:actor,:now,:zone)
+                payload_schema_version,content_sha256,base_offer_row_version,created_by,created_at,resolved_timezone,
+                base_place_row_version)
+        VALUES(:id,:sid,:no,:prev,CAST(:payload AS jsonb),1,:hash,:base,:actor,:now,:zone,:placeBase)
         """,
         params(
             "id",
@@ -188,19 +199,61 @@ public class SubmissionStore {
             "now",
             java.sql.Timestamp.from(now),
             "zone",
-            zone));
-    return new VersionRow(
-        id,
-        row.id(),
-        number,
-        old == null ? null : old.id(),
-        payload,
-        1,
-        hash,
-        base,
-        actor,
-        now,
-        zone);
+            zone,
+            "placeBase",
+            placeBase));
+    VersionRow version =
+        new VersionRow(
+            id,
+            row.id(),
+            number,
+            old == null ? null : old.id(),
+            payload,
+            1,
+            hash,
+            base,
+            actor,
+            now,
+            zone,
+            placeBase);
+    publicationMetadata(row, version);
+    return version;
+  }
+
+  private void publicationMetadata(SubmissionRow row, VersionRow version) {
+    if (version.resolvedTimezone() == null) return;
+    ObjectNode data = json.createObjectNode();
+    data.put("submissionId", row.id().toString());
+    data.put("versionId", version.id().toString());
+    data.put("versionNo", version.versionNo());
+    data.put("type", row.type().name());
+    data.put("resolvedTimezone", version.resolvedTimezone());
+    data.set("basePlaceRowVersion", json.valueToTree(version.basePlaceRowVersion()));
+    UUID id = SubmissionIds.newId();
+    ObjectNode envelope = json.createObjectNode();
+    envelope.put("eventId", id.toString());
+    envelope.put("eventType", "SubmissionPublicationMetadata");
+    envelope.put("schemaVersion", 1);
+    envelope.put("producer", "submission");
+    envelope.put("occurredAt", version.createdAt().toString());
+    envelope.put("correlationId", correlation());
+    envelope.set("data", data);
+    jdbc.update(
+        """
+        INSERT INTO publication_metadata_outbox(id,submission_id,version_id,payload,occurred_at)
+        VALUES(:id,:sid,:vid,CAST(:payload AS jsonb),:now)
+        """,
+        params(
+            "id",
+            id,
+            "sid",
+            row.id(),
+            "vid",
+            version.id(),
+            "payload",
+            envelope.toString(),
+            "now",
+            java.sql.Timestamp.from(version.createdAt())));
   }
 
   public SubmissionRow update(
@@ -229,6 +282,13 @@ public class SubmissionStore {
                 "expected",
                 row.rowVersion()));
     if (count != 1) throw new SubmissionException(412, "STALE_ROW_VERSION");
+    return find(row.id());
+  }
+
+  public SubmissionRow rebasePlaceDraft(SubmissionRow row, Integer placeBase) {
+    jdbc.update(
+        "UPDATE submissions SET draft_base_place_row_version=:placeBase WHERE id=:id",
+        params("placeBase", placeBase, "id", row.id()));
     return find(row.id());
   }
 
@@ -388,13 +448,20 @@ public class SubmissionStore {
   }
 
   public SubmissionRow create(
-      SubmissionType type, UUID author, UUID place, UUID offer, JsonNode payload, Integer base) {
+      SubmissionType type,
+      UUID author,
+      UUID place,
+      UUID offer,
+      JsonNode payload,
+      Integer base,
+      Integer placeBase) {
     UUID id = SubmissionIds.newId();
     jdbc.update(
         """
         INSERT INTO submissions(id,type,author_id,target_place_id,target_offer_id,draft_payload,
-                draft_base_offer_row_version,created_at,updated_at)
-        VALUES(:id,CAST(:type AS submission_type),:author,:place,:offer,CAST(:payload AS jsonb),:base,:now,:now)
+                draft_base_offer_row_version,draft_base_place_row_version,created_at,updated_at)
+        VALUES(:id,CAST(:type AS submission_type),:author,:place,:offer,CAST(:payload AS jsonb),:base,
+               :placeBase,:now,:now)
         """,
         params(
             "id",
@@ -411,6 +478,8 @@ public class SubmissionStore {
             payload.toString(),
             "base",
             base,
+            "placeBase",
+            placeBase,
             "now",
             java.sql.Timestamp.from(clock.instant())));
     return find(id);
