@@ -35,7 +35,7 @@ class PostgresRateLimitIT {
     var clock = Clock.fixed(now, ZoneOffset.UTC);
     var settings =
         new SubmissionProperties(
-            null, new SubmissionProperties.Limits(262144, 120), null, null, null, null);
+            new SubmissionProperties.Limits(262144, 120), null, null, null, null);
     var limiter = new PostgresRateLimiter(jdbc, clock, settings);
     UUID actor = UUID.randomUUID();
     jdbc.update(

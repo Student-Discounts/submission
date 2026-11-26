@@ -7,6 +7,8 @@ import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.time.Duration;
+import java.util.Arrays;
+import java.util.List;
 import java.util.UUID;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.Test;
@@ -75,7 +77,10 @@ class SubmissionHttpIT {
   void createsAndReadsDraftThroughRealHttpAndProxiedRepository() throws Exception {
     // Direct construction cannot detect field access on an uninitialized repository proxy.
     assertThat(AopUtils.isAopProxy(store)).isTrue();
-    String token = AuthContractIT.sign(AuthContractIT.claims().build(), AuthContractIT.key);
+    String token =
+        AuthContractIT.sign(
+            AuthContractIT.claims().claim("roles", List.of("STUDENT", "SERVICE")).build(),
+            AuthContractIT.key);
     URI collection = URI.create("http://127.0.0.1:" + port + "/api/v1/submissions");
     try (var http = HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(10)).build()) {
       var request =
@@ -135,6 +140,50 @@ class SubmissionHttpIT {
       assertThat(fetched.statusCode()).as(fetched.body()).isEqualTo(200);
       assertThat(fetched.headers().firstValue("ETag")).hasValue("\"0\"");
       assertThat(json.readTree(fetched.body())).isEqualTo(created);
+    }
+  }
+
+  @Test
+  void unsupportedOrAbsentRolesCannotCreateAndMalformedClaimsNeverBecome500() throws Exception {
+    URI collection = URI.create("http://127.0.0.1:" + port + "/api/v1/submissions");
+    try (var http = HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(10)).build()) {
+      for (Object roles :
+          Arrays.asList(null, List.of(), List.of("SERVICE"), "STUDENT", List.of("STUDENT", 1))) {
+        String token =
+            AuthContractIT.sign(
+                AuthContractIT.claims().claim("roles", roles).build(), AuthContractIT.key);
+        var request =
+            HttpRequest.newBuilder(collection)
+                .timeout(Duration.ofSeconds(10))
+                .header("Authorization", "Bearer " + token)
+                .header("Idempotency-Key", "unsupported-role-" + UUID.randomUUID())
+                .header("Content-Type", "application/json")
+                .POST(
+                    HttpRequest.BodyPublishers.ofString(
+                        "{\"type\":\"NEW_PLACE\",\"payload\":{\"place\":{\"name\":\"Denied\"}}}"))
+                .build();
+        var response = http.send(request, HttpResponse.BodyHandlers.ofString());
+        int expected =
+            roles instanceof String || (roles instanceof List<?> values && values.contains(1))
+                ? 401
+                : 403;
+        assertThat(response.statusCode()).as(response.body()).isEqualTo(expected);
+        assertThat(json.readTree(response.body()).path("code").asText())
+            .isEqualTo(expected == 401 ? "UNAUTHORIZED" : "FORBIDDEN");
+      }
+      String invalidIdentity =
+          AuthContractIT.sign(
+              AuthContractIT.claims().subject("not-a-uuid").build(), AuthContractIT.key);
+      var response =
+          http.send(
+              HttpRequest.newBuilder(collection)
+                  .timeout(Duration.ofSeconds(10))
+                  .header("Authorization", "Bearer " + invalidIdentity)
+                  .GET()
+                  .build(),
+              HttpResponse.BodyHandlers.ofString());
+      assertThat(response.statusCode()).as(response.body()).isEqualTo(401);
+      assertThat(json.readTree(response.body()).path("code").asText()).isEqualTo("UNAUTHORIZED");
     }
   }
 }

@@ -22,6 +22,7 @@ import tools.jackson.databind.JsonNode;
 @RestController
 @RequestMapping("/api/v1")
 public class SubmissionController {
+  private static final ActorRole[] SUPPORTED_ROLES = ActorRole.values();
   private final AuthorSubmissionCommands commands;
   private final SubmissionQueries queries;
   private final ReviewCorrections corrections;
@@ -49,8 +50,11 @@ public class SubmissionController {
 
   private SubmissionActor actor(Jwt jwt) {
     EnumSet<ActorRole> roles = EnumSet.noneOf(ActorRole.class);
-    for (String role : jwt.getClaimAsStringList("roles")) {
-      roles.add(ActorRole.valueOf(role));
+    var claims = jwt.getClaimAsStringList("roles");
+    if (claims != null) {
+      for (ActorRole role : SUPPORTED_ROLES) {
+        if (claims.contains(role.name())) roles.add(role);
+      }
     }
     return new SubmissionActor(UUID.fromString(jwt.getSubject()), roles);
   }

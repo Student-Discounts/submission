@@ -18,6 +18,10 @@ spring:
         jwt:
           issuer-uri: ${SD_SUBMISSION_AUTH_ISSUER}
           jwk-set-uri: ${SD_SUBMISSION_AUTH_JWK_SET_URI}
+          audiences: student-discounts-api
+          jws-algorithms: RS256
+          authorities-claim-name: roles
+          authority-prefix: ROLE_
   kafka:
     bootstrap-servers: ${SD_SUBMISSION_KAFKA_BOOTSTRAP_SERVERS}
     consumer:
@@ -45,8 +49,6 @@ server:
     max-connections: 200
     accept-count: 100
 submission:
-  security:
-    audience: student-discounts-api
   dependencies:
     catalog-base-url: ${SD_SUBMISSION_CATALOG_BASE_URL}
     media-base-url: ${SD_SUBMISSION_MEDIA_BASE_URL}

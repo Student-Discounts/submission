@@ -1,7 +1,9 @@
 package org.studentdiscounts.submission.integration;
 
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.clearInvocations;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 import static org.springframework.security.test.web.servlet.setup.SecurityMockMvcConfigurers.springSecurity;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
@@ -12,6 +14,7 @@ import java.util.List;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
+import org.springframework.boot.security.oauth2.server.resource.autoconfigure.OAuth2ResourceServerAutoConfiguration;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.context.annotation.Import;
@@ -43,6 +46,9 @@ class SecurityHttpContractIT {
         "spring.security.oauth2.resourceserver.jwt.jwk-set-uri="
             + AuthContractIT.issuer
             + "/.well-known/jwks.json",
+        "spring.security.oauth2.resourceserver.jwt.audiences=student-discounts-api",
+        "spring.security.oauth2.resourceserver.jwt.authorities-claim-name=roles",
+        "spring.security.oauth2.resourceserver.jwt.authority-prefix=ROLE_",
         "submission.cors.allowed-origins=http://localhost:5173",
         "submission.dependencies.catalog-base-url=http://localhost:8090",
         "submission.dependencies.media-base-url=http://localhost:8090",
@@ -88,12 +94,15 @@ class SecurityHttpContractIT {
   }
 
   @Test
-  void malformedRequiredClaimsFailAs401AndScopeCannotGrantRolePrivileges() throws Exception {
+  void malformedConsumerClaimsFailBeforeRateLimitingAndScopeCannotGrantRoles() throws Exception {
+    clearInvocations(limiter);
     for (var bad :
         List.of(
             AuthContractIT.claims().subject("invalid").build(),
-            AuthContractIT.claims().claim("sid", null).build(),
+            AuthContractIT.claims().subject(null).build(),
+            AuthContractIT.claims().subject("1-1-1-1-1").build(),
             AuthContractIT.claims().claim("roles", "STUDENT").build(),
+            AuthContractIT.claims().claim("roles", List.of("STUDENT", 1)).build(),
             AuthContractIT.claims().audience("foreign").build())) {
       mvc.perform(
               get("/api/v1/probe")
@@ -102,10 +111,20 @@ class SecurityHttpContractIT {
           .andExpect(status().isUnauthorized())
           .andExpect(content().contentTypeCompatibleWith("application/problem+json"));
     }
+    verifyNoInteractions(limiter);
     String scopeOnly =
         AuthContractIT.sign(
             AuthContractIT.claims().claim("scope", "SENIOR_MODERATOR").build(), AuthContractIT.key);
     mvc.perform(get("/actuator/prometheus").header("Authorization", "Bearer " + scopeOnly))
+        .andExpect(status().isForbidden());
+    mvc.perform(
+            get("/actuator/prometheus")
+                .header("Authorization", "Bearer " + token(List.of("SERVICE"))))
+        .andExpect(status().isForbidden());
+    String noRoles =
+        AuthContractIT.sign(
+            AuthContractIT.claims().claim("roles", null).build(), AuthContractIT.key);
+    mvc.perform(get("/actuator/prometheus").header("Authorization", "Bearer " + noRoles))
         .andExpect(status().isForbidden());
   }
 
@@ -156,7 +175,7 @@ class SecurityHttpContractIT {
 
   @Configuration
   @EnableWebMvc
-  @Import(SecurityConfig.class)
+  @Import({SecurityConfig.class, OAuth2ResourceServerAutoConfiguration.class})
   static class Fixture {
     @Bean
     JsonMapper mapper() {

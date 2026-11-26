@@ -53,9 +53,9 @@ curl --fail http://localhost:8081/actuator/health/readiness
 
 `application.yml` is the nonlocal configuration: required DB credentials, broker, issuer/JWKS and Catalog/Media/Geo URLs have **no production password/mock defaults**. Missing or invalid required settings fail startup. Organization provider may be absent and then representative target-bound writes fail closed. `application-local.yml` explicitly supplies development-only defaults. `.env.example` documents local values; Compose reads `.env`, but host Gradle does not automatically load it. To load it into the host shell: `set -a; source .env; set +a`. Never commit populated secrets.
 
-Submission-owned values bind once into immutable, validated `SubmissionProperties` groups (`security`, `limits`, `cors`, `dependencies`, `workers`, `kafka`), registered by `SubmissionConfiguration` under normal Boot component scanning. HTTP business bases are typed `URI`; invalid protocols/credentials/query fragments fail before serving traffic, without DNS resolution or contacting providers. Required Catalog/Media/Geo bases cannot be omitted; an empty organization base remains absent. Body/rate/batch limits must be positive and scheduler/send durations at least one millisecond. Existing `*-ms` property names and bare numeric millisecond values are preserved with `@DurationUnit(MILLIS)`; explicit duration values such as `500ms` also work. Empty CORS still disables cross-origin access; comma-separated explicit origins retain their existing meaning. No environment key or worker pause flag is renamed.
+Submission-owned values bind once into immutable, validated `SubmissionProperties` groups (`limits`, `cors`, `dependencies`, `workers`, `kafka`), registered by `SubmissionConfiguration`. HTTP business bases are typed `URI`; invalid protocols/credentials/query fragments fail before serving traffic, without DNS resolution or contacting providers. Required Catalog/Media/Geo bases cannot be omitted; an empty organization base remains absent. Body/rate/batch limits must be positive and scheduler/send durations at least one millisecond. Existing `*-ms` property names and bare numeric millisecond values are preserved with `@DurationUnit(MILLIS)`; explicit duration values such as `500ms` also work. Empty CORS disables cross-origin access.
 
-Standard datasource/Kafka client/OAuth settings remain Boot-owned. `JwtSecurityConfiguration` consumes Boot's existing `OAuth2ResourceServerProperties`, retaining separate explicit issuer and JWK URI settings and fixed 2-second connect/3-second read timeouts. `AuthTokenContractValidator` uses injected `Clock` and the authoritative `ActorRole` enum; Spring's standard timestamp/issuer validators and RS256 decoder remain in place. `SecurityConfig` owns only stateless HTTP authorization/filter assembly; `SubmissionCorsConfiguration` owns the CORS policy. Startup validation neither discovers OIDC metadata nor fetches remote keys. Only actual token verification fetches JWKS; no token issuing or fallback authentication is added.
+Spring Boot owns the JWT decoder and authority converter through `spring.security.oauth2.resourceserver.jwt.*`: explicit issuer/JWKS, audience `student-discounts-api`, RS256, claim `roles`, prefix `ROLE_`. `JwtSecurityConfiguration` requires an expiry and adds submission input guards for canonical UUID `sub` and string-array roles when present. Submission does not validate auth's session internals or duplicate its role catalog. `SecurityConfig` owns stateless HTTP authorization/filter assembly; `SubmissionCorsConfiguration` owns CORS. Explicit JWKS avoids OIDC discovery; keys are fetched when verifying tokens, with no token-issuing or fallback authentication path.
 
 | Environment variable | Local default / purpose |
 |---|---|
@@ -80,11 +80,13 @@ Standard datasource/Kafka client/OAuth settings remain Boot-owned. `JwtSecurityC
 
 Tomcat max100 threads/200 connections/accept queue100; DB pool10. HTTP dependencies use fixed configured bases, 2s connect/3s read timeout and never return success fallback. Correlation IDs are safe 1–64-character `[A-Za-z0-9._:-]`, generated when missing/invalid, returned and carried through MDC, external HTTP/history/events. Payloads, tokens, passwords and private proof URLs must not be logged. CORS permits Authorization, Content-Type, If-Match, Idempotency-Key, X-Correlation-ID and exposes ETag/Location.
 
-## Existing auth integration and permissions
+## Auth integration and permissions
 
-RS256 resource-server validation fetches explicit JWKS (no OIDC discovery), checks issuer, exact audience `student-discounts-api`, expiry, UUID `sub` and `sid`, and a string-array `roles`. Authorities use `ROLE_` plus actual roles `STUDENT`, `ORG_REPRESENTATIVE`, `MODERATOR`, `SENIOR_MODERATOR`. No `user_id`, account-status or fabricated SERVICE claim exists. Bearer headers only; no trusted identity headers, cookies or per-request `/api/v1/me` introspection.
+The external `auth/` service owns registration, passwords, login, refresh, logout, sessions, role administration and account blocking. Clients obtain an access token with `POST /api/v1/auth/login` (`email`, `password`) and pass the returned `accessToken` as `Authorization: Bearer …` to Submission. New users register through `POST /api/v1/auth/register` (`email`, `password`, `displayName`), receiving the `STUDENT` role. Submission neither proxies these APIs nor reads auth's database.
 
-Auth currently issues five-minute access tokens. Offline validation cannot immediately observe user/session revocation or changed roles before expiry. Auth's organization verification/role-management/refresh/logout/revocation interfaces are unfinished; organization membership is a distinct unimplemented business contract, **not an auth endpoint**. Obtain real tokens using auth's documented register/login endpoints. Submission never grants roles or manufactures production tokens.
+Submission verifies access-token signatures against auth's `GET /.well-known/jwks.json`, checking issuer, audience and expiry using Spring's resource server. It uses UUID `sub` for ownership/rate limits and maps only its supported roles to business permissions. Unknown roles grant no Submission permissions; missing roles do not authorize author/reviewer operations. Bearer headers only; no trusted identity headers, cookies or per-request `/api/v1/me` introspection.
+
+Auth issues five-minute access tokens. Offline validation cannot immediately observe logout, session revocation, blocking or changed roles before expiry; clients refresh through auth. Auth currently has no cross-service current-rights introspection endpoint. Organization verification/membership remains a separate unavailable business contract and fails closed outside explicit local fixtures.
 
 Students author their own submissions; NEW_PLACE requires STUDENT. For target-bound NEW_OFFER/CHANGE create/edit/submit, presence of ORG_REPRESENTATIVE always requires `allowed && verified` organization authorization, even with STUDENT also present. Foreign private submissions return404; no cross-author list exists. Reviewers cannot review/correct their own submission. Editable drafts remain owner-only.
 
@@ -130,13 +132,13 @@ Inbox/business/history/outbox commit together. Transient broker/DB errors receiv
 | Boundary | Local implementation |
 |---|---|
 | Submission HTTP/domain/PostgreSQL/Flyway/idempotency/inbox/outbox/Kafka | Real implementation, separate database |
-| Auth | External real service; no normal Compose auth fixture. Smoke contract JWKS is test-only, not auth replacement |
+| Auth | External real service for runtime and executable smoke; test-only JWKS in integration tests cover invalid tokens |
 | Catalog reads | Strict WireMock place/two offers/category/revision7 snapshots; no public catalog database/search/publication application |
 | Catalog publication | Explicit smoke event fixture following committed approval; no real public offers created |
 | Media | Mock metadata + explicit fixture events; no uploads, scanner, quarantine storage, byte/type checks or S3 implementation |
 | Geo | Explicit Moscow/UTC lookup and no-match fixtures; no real geocoder |
 | Organization membership | Explicit verified/denied mock contract, unavailable from current auth; production fail closed |
-| Moderation | Explicit human-decision event fixtures and moderator test tokens only; no auto-approver or decision store |
+| Moderation | Explicit human-decision event fixtures; no auto-approver or decision store; smoke does not manufacture moderator tokens |
 | Risk / duplicates | Not implemented here; no fake score or safety claim |
 
 Static business mappings in `dev/stubs/mappings` match known URLs/query values only; all unknown requests404. Categories `cafe` active / `inactive` inactive; place `019a0000-0000-7000-8000-000000000001`; two offers ending0011/0012 at revision7; exact Moscow point59.9571/30.3083; suggestions city `No Match`, address `Unknown` returns empty. Default known-place organization responses deny.
@@ -160,25 +162,26 @@ gradle integrationTest --tests 'org.studentdiscounts.submission.integration.Post
 gradle integrationTest --tests 'org.studentdiscounts.submission.integration.AuthContractIT'
 gradle integrationTest --tests 'org.studentdiscounts.submission.integration.KafkaLifecycleIT'
 gradle build
-gradle smoke --args=contract
-SD_AUTH_BASE_URL=http://localhost:8080 gradle smoke --args=auth
+SD_AUTH_BASE_URL=http://localhost:8080 gradle smoke
 ```
 
-Smoke depends on bootJar and launches its own actual executable jar on18081, unique PostgreSQL schema, separate Kafka consumer group, unique actor/correlation IDs/mappings, a30s assertion deadline, and isolated request limit10000. It refuses occupied18081/18090, cleans only its own schema/mappings/processes, never resets shared WireMock or drops volumes. Contract mode uses fresh RSA test-only JWKS on18090 and exact auth-format claims; no runtime token-issuing endpoint exists. Auth mode uses real register/login/JWKS and fails if unavailable, **never falls back to test keys**. Optional `SD_SMOKE_STUDENT_EMAIL`/`SD_SMOKE_STUDENT_PASSWORD` and `SD_SMOKE_OTHER_EMAIL`/`SD_SMOKE_OTHER_PASSWORD` select dedicated existing accounts; otherwise synthetic unique accounts and24-character passwords are used. No credentials/tokens printed; no role-admin endpoint invented. Auth mode proves student flows only; contract-mode moderator fixture is not proof of real role administration.
+Smoke depends on `bootJar` and launches its own executable jar on port 18081, with a unique PostgreSQL schema, separate Kafka consumer group, owned mappings and a 30-second assertion deadline. It always uses real auth's registration/login/profile/JWKS endpoints, fails if auth is unavailable, and never falls back to local signing keys. Optional paired `SD_SMOKE_STUDENT_EMAIL`/`SD_SMOKE_STUDENT_PASSWORD` and `SD_SMOKE_OTHER_EMAIL`/`SD_SMOKE_OTHER_PASSWORD` select dedicated existing student accounts; otherwise it registers unique accounts. No credentials/tokens are printed. Smoke verifies student workflows and isolation; it neither grants roles nor claims real moderator administration. It cleans only its own schema/mappings/processes, never resets shared WireMock or drops volumes. Catalog/Media/Geo/organization and moderation event fixtures remain explicit, not real business-service integrations.
 
-### Observed verification
+Smoke logs out sessions it creates. Accounts registered by smoke remain in auth because auth exposes no self-delete API; use dedicated existing accounts on shared environments.
 
-Commands below use Java 25 with `JAVA_HOME=/usr/local/opt/openjdk@25/libexec/openjdk.jdk/Contents/Home`; no wrapper/Maven is involved. Only completed commands are reported.
+### Verification
 
-- Focused `gradle test --tests 'org.studentdiscounts.submission.config.*' integrationTest --tests 'org.studentdiscounts.submission.integration.AuthContractIT' --tests 'org.studentdiscounts.submission.integration.SecurityHttpContractIT' --tests 'org.studentdiscounts.submission.integration.PostgresRateLimitIT'`: **BUILD SUCCESSFUL** in 19 seconds, **39 unit + 9 integration tests**, zero failures/errors/skips. This exercises invalid startup settings, required/optional providers, blank/CSV CORS authorization, legacy millisecond units, fixed-clock claim boundaries, and real JWKS including independent public issuer/internal key URLs.
-- Current production/domain/settings/fairness tree: `gradle javaFormat build compileSmokeJava --console=plain`: **BUILD SUCCESSFUL** in 1 minute 14 seconds, **84 unit + 37 PostgreSQL/Kafka/HTTP integration tests**, zero failures/errors/skips, plus compiled smoke and formatting checks. This includes the full Spring HTTP regression, semantic enum-input boundaries, typed actor permissions, reviewed-version approval race, and two validation-selection fairness regressions.
-- After adding the actual-scheduler fairness smoke case: the same formatter/build/compile command **succeeded in 11 seconds**. Smoke compilation/formatting executed; unchanged production compilation and the previously passed 121 tests were correctly `UP-TO-DATE`, not claimed as rerun.
-- `docker compose config --quiet && docker compose --profile app up -d --build --wait`: exit 0 in 26.89 seconds, **all four containers Healthy**. The runtime image was rebuilt from the current production jar, not left on the earlier implementation. Fresh container checks confirmed UID/GID 999 (`submission`), readiness `{"status":"UP"}`, unauthenticated API HTTP 401, and OpenAPI HTTP 200. This does not establish real-auth token access.
-- Current actual-jar proof: `JAVA_HOME=/usr/local/opt/openjdk@25/libexec/openjdk.jdk/Contents/Home /usr/local/bin/gradle smoke --args=contract --console=plain`: **PASS**, exit 0 in 70.34 seconds (Gradle 1 minute 10 seconds). All eight original acceptance scenarios remain, plus actual scheduled fairness: the child jar is explicitly launched with validation batch size 2, two proof-only quarantined heads stay VALIDATING, and a third complete submission reaches PENDING_REVIEW through the real scheduled worker. No database writes or direct worker calls fake those transitions. Owned schemas were confirmed removed after teardown.
-- `JAVA_HOME=/usr/local/opt/openjdk@25/libexec/openjdk.jdk/Contents/Home SD_AUTH_BASE_URL=http://localhost:8080 /usr/local/bin/gradle smoke --args=auth --console=plain`: **unavailable prerequisite**, exit 1 in 3.40 seconds with `java.net.ConnectException` fetching the real JWKS on port 8080, before schema/app creation. No test-key fallback or auth build/start occurred. Real register/login and token-authenticated container access are **not verified**.
-- OpenAPI YAML syntax/internal references, three Draft 2020-12 event JSON Schemas, CI YAML structure and fixture installer shell syntax were validated. CI itself has not run locally.
+Run `gradle build compileSmokeJava` for unit/integration checks, packaging, formatting and smoke compilation. Run `gradle smoke` with real auth and the local Compose dependencies available to exercise the executable jar across the auth boundary. Integration tests use test-only signing keys to exercise rejected signatures/claims; those keys are not used by the runtime or smoke.
 
-### Selected observed red → green regressions
+Verified with Java 25 and the installed Gradle binary:
+
+- `gradle javaFormat build compileSmokeJava --console=plain`: passed; 76 unit tests and 37 integration tests, zero failures/errors/skips. Includes rejected signatures, issuer/audience/expiry, required expiry, malformed identities/roles, unknown roles and ownership boundaries.
+- `docker compose config --quiet`: passed.
+- `SD_AUTH_BASE_URL=http://localhost:18080 SD_SUBMISSION_AUTH_ISSUER=http://localhost:18080 gradle smoke --console=plain`: passed against an isolated run of unmodified `auth/` sources. Proved registration/login/profile, JWKS token acceptance, anonymous/forged bearer rejection, cross-user isolation and submission workflows through the executable jar. Catalog/Media/Geo/organization/moderation remained explicitly labeled fixtures. Smoke session/resource cleanup completed.
+
+The verification auth instance used a throwaway Gradle build outside both repositories with auth's declared runtime dependencies and its own disposable PostgreSQL database; neither auth sources nor its build files were changed. Normal development uses the separately operated auth service documented above.
+
+### Selected historical red → green regressions
 
 These are consumer-visible failures actually observed before fixes, not inferred TDD claims. Re-run the permanent test classes below using the installed `gradle` binary; `JAVA_HOME` setup is above. Early missing-class compilation and concurrent Gradle output-file races were infrastructure failures and are not counted as behavioral reds.
 
@@ -191,7 +194,7 @@ These are consumer-visible failures actually observed before fixes, not inferred
 | `gradle test --tests 'org.studentdiscounts.submission.submission.SubmissionApiTest'` | Object/array values for submission type threw Jackson exceptions and returned 500 during enum cutover | Explicit semantic type validation preserves 422 `TARGET_INVALID`; all 8 API tests passed |
 | `gradle integrationTest --tests 'org.studentdiscounts.submission.integration.ValidationFairnessIT'` | A batch filled by quarantined or dependency-delayed work left a later ready submission permanently SUBMITTED | Bounded keyset round-robin selection advances later work and wraps without duplicate IDs; both real-PostgreSQL cases passed |
 
-The first actual-jar smoke also caught direct field access through a Spring repository proxy (HTTP 500). Concrete use cases with explicit dependencies plus a full Spring HTTP create-draft regression replaced that coupling. The final actual-jar contract smoke passed; this does not claim every platform feature was implemented or every test had a captured preimplementation behavioral red.
+The first actual-jar smoke also caught direct field access through a Spring repository proxy (HTTP 500). Concrete use cases with explicit dependencies plus a full Spring HTTP create-draft regression replaced that coupling. Historical fixture-based smoke results are not evidence of current real-auth integration.
 
 ## Operations, backup and recovery
 

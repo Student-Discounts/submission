@@ -87,7 +87,7 @@ tasks.named('bootJar') {
 }
 
 tasks.register('smoke', JavaExec) {
-	description = 'Runs the isolated executable-jar smoke against local PostgreSQL/Kafka/business stubs.'
+	description = 'Runs the executable-jar smoke with real auth and local PostgreSQL/Kafka/business stubs.'
 	group = 'verification'
 	dependsOn tasks.named('bootJar'), tasks.named('smokeClasses')
 	classpath = sourceSets.smoke.runtimeClasspath

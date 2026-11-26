@@ -20,14 +20,11 @@ import org.springframework.validation.annotation.Validated;
 @Validated
 @ConfigurationProperties("submission")
 public record SubmissionProperties(
-    @Valid @DefaultValue Security security,
     @Valid @DefaultValue Limits limits,
     @Valid @DefaultValue Cors cors,
     @Valid @DefaultValue Dependencies dependencies,
     @Valid @DefaultValue Workers workers,
     @Valid @DefaultValue Kafka kafka) {
-
-  public record Security(@NotBlank @DefaultValue("student-discounts-api") String audience) {}
 
   public record Limits(
       @Positive @Max(2147483646) @DefaultValue("262144") int maxBodyBytes,
